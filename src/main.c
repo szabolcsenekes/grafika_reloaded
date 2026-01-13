@@ -1,156 +1,10 @@
 #include <SDL2/SDL.h>
-#include <GL/gl.h>
-#include <GL/glu.h>
 #include <stdio.h>
 #include <stdbool.h>
 
 #include "camera.h"
-
-static void gl_setup(int width, int height) {
-    glViewport(0, 0, width, height);
-
-    glMatrixMode(GL_PROJECTION);
-    glLoadIdentity();
-    gluPerspective(70.0, (double)width / (double)height, 0.1, 500.0);
-
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-
-    glEnable(GL_DEPTH_TEST);
-    glDepthFunc(GL_LEQUAL);
-
-    glDisable(GL_CULL_FACE);
-}
-
-static void draw_grid(float half_size, float step) {
-    glDisable(GL_LIGHTING);
-    glBegin(GL_LINES);
-
-    for (float x = -half_size; x <= half_size; x += step) {
-        glColor3f(0.25f, 0.25f, 0.25f);
-        glVertex3f(x, -half_size, 0.0f);
-        glVertex3f(x, half_size, 0.0f);
-    }
-
-    for (float y = -half_size; y <= half_size; y += step) {
-        glColor3f(0.25f, 0.25f, 0.25f);
-        glVertex3f(-half_size, y, 0.0f);
-        glVertex3f(half_size, y, 0.0f);
-    }
-
-    glColor3f(1.0f, 0.2f, 0.2f);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(2.0f, 0.0f, 0.0f);
-
-    glColor3f(0.2f, 1.0f, 0.2f);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(0.0f, 2.0f, 0.0f);
-
-    glColor3f(0.2f, 0.2f, 1.0f);
-    glVertex3f(0.0f, 0.0f, 0.0f);
-    glVertex3f(0.0f, 0.0f, 2.0f);
-
-    glEnd();
-}
-
-static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz) {
-    float x0 = cx - sx * 0.5f, x1 = cx + sx * 0.5f;
-    float y0 = cy - sy * 0.5f, y1 = cy + sy * 0.5f;
-    float z0 = cz - sz * 0.5f, z1 = cz + sz * 0.5f;
-
-    glBegin(GL_QUADS);
-
-    //front
-    glVertex3f(x0, y0, z1);
-    glVertex3f(x1, y0, z1);
-    glVertex3f(x1, y1, z1);
-    glVertex3f(x0, y1, z1);
-
-    //bottom
-    glVertex3f(x0, y0, z0);
-    glVertex3f(x0, y1, z0);
-    glVertex3f(x1, y1, z0);
-    glVertex3f(x1, y0, z0);
-
-    //front (y1)
-    glVertex3f(x0, y1, z0);
-    glVertex3f(x0, y1, z1);
-    glVertex3f(x1, y1, z1);
-    glVertex3f(x1, y1, z0);
-
-    //back (y0)
-    glVertex3f(x0, y0, z0);
-    glVertex3f(x1, y0, z0);
-    glVertex3f(x1, y0, z1);
-    glVertex3f(x0, y0, z1);
-
-    //left (x0)
-    glVertex3f(x0, y0, z0);
-    glVertex3f(x0, y0, z1);
-    glVertex3f(x0, y1, z1);
-    glVertex3f(x0, y1, z0);
-
-    //right (x1)
-    glVertex3f(x1, y0, z0);
-    glVertex3f(x1, y1, z0);
-    glVertex3f(x1, y1, z1);
-    glVertex3f(x1, y0, z1);
-
-    glEnd();
-}
-
-static void draw_ground(float half_size, float z) {
-    glDisable(GL_LIGHTING);
-    glColor3f(0.18f, 0.24f, 0.16f);
-
-    glBegin(GL_QUADS);
-    glVertex3f(-half_size, -half_size, z);
-    glVertex3f(half_size, -half_size, z);
-    glVertex3f(half_size, half_size, z);
-    glVertex3f(-half_size, half_size, z);
-    glEnd();
-}
-
-static void draw_fence(float half_size, float wall_height) {
-    glDisable(GL_LIGHTING);
-
-    //wall width
-    const float T = 0.25f;
-
-    //wall color
-    glColor3f(0.35f, 0.25f, 0.12f);
-
-    //4 walls
-    draw_box(0.0f, half_size, wall_height * 0.5f, half_size * 2.0f, T, wall_height);
-    draw_box(0.0f, -half_size, wall_height * 0.5f, half_size * 2.0f, T, wall_height);
-    draw_box(half_size, 0.0f, wall_height * 0.5f, T, half_size * 2.0f, wall_height);
-    draw_box(-half_size, 0.0f, wall_height * 0.5f, T, half_size * 2.0f, wall_height);
-
-    glColor3f(0.25f, 0.18f, 0.08f);
-    const float post = 0.35f;
-    const float step = 4.0f;
-
-    for (float x = -half_size; x <= half_size; x += step) {
-        draw_box(x, half_size, wall_height * 0.5f, post, post, wall_height);
-        draw_box(x, -half_size, wall_height * 0.5f, post, post, wall_height);
-    }
-
-    for (float y = -half_size; y <= half_size; y += step) {
-        draw_box(half_size, y, wall_height * 0.5f, post, post, wall_height);
-        draw_box(-half_size, y, wall_height * 0.5f, post, post, wall_height);
-    }
-
-    glColor3f(0.40f, 0.30f, 0.15f);
-    float gate_y = -half_size;
-    float gate_w = 3.0f;
-    float gate_x0 = -gate_w * 0.5f;
-    float gate_x1 = gate_w * 0.5f;
-
-    draw_box(gate_x0, gate_y, wall_height * 0.5f, post, post, wall_height);
-    draw_box(gate_x1, gate_y, wall_height * 0.5f, post, post, wall_height);
-
-    draw_box(0.0f, gate_y, wall_height - 0.2f, gate_w, post, post);
-}
+#include "scene.h"
+#include "renderer.h"
 
 int main(int argc, char** argv) {
     (void)argc;
@@ -191,10 +45,28 @@ int main(int argc, char** argv) {
     int width;
     int height;
     SDL_GetWindowSize(window, &width, &height);
-    gl_setup(width, height);
+    renderer_init(width, height);
 
     Camera camera;
     camera_init(&camera);
+
+    Scene scene;
+    scene_init(&scene);
+
+    //enclosures
+    scene_add_fence(&scene, 0.0f, 0.0f, 25.0f, 2.0f, true);
+    scene_add_fence(&scene, 40.0f, 10.0f, 12.0f, 2.0f, true);
+    scene_add_fence(&scene, -45.0f, -20.0f, 15.0f, 2.0f, true);
+
+    //props
+    scene_add_box(&scene, 5.0f, 6.0f, 0.5f, 1.8f, 1.2f, 1.0f, (Color3){0.45f, 0.45f, 0.48f}, true);
+    scene_add_box(&scene, -8.0f, 4.0f, 0.4f, 1.0f, 1.0f, 0.8f, (Color3){0.45f, 0.45f, 0.48f}, true);
+    scene_add_box(&scene, 12.0f, -3.0f, 0.6f, 2.2f, 1.4f, 1.2f, (Color3){0.45f, 0.45f, 0.48f}, true);
+
+    scene_add_box(&scene, -10.0f, -6.0f, 1.2f, 0.6f, 0.6f, 2.4f, (Color3){0.30f, 0.22f, 0.10f}, true);
+    scene_add_box(&scene, 18.0f, 8.0f, 1.5f, 0.7f, 0.7f, 3.0f, (Color3){0.30f, 0.22f, 0.10f}, true);
+
+    scene_add_box(&scene, 35.0f, -5.0f, 1.2f, 6.0f, 4.0f, 2.4f, (Color3){0.55f, 0.40f, 0.25f}, true);
 
     bool running = true;
     bool mouse_captured = false;
@@ -253,7 +125,7 @@ int main(int argc, char** argv) {
             {
                 width = event.window.data1;
                 height = event.window.data2;
-                gl_setup(width, height);
+                renderer_resize(width, height);
             }
 
             if (event.type == SDL_KEYDOWN && event.key.repeat == 0)
@@ -292,26 +164,38 @@ int main(int argc, char** argv) {
             }
         }
 
+        scene_collect_obstacles(&scene);
+
+        const float camera_r = 0.35f;
+
+        float oldx = camera.position.x;
+        float oldy = camera.position.y;
+
         // --- update once per frame ---
         camera_update(&camera, delta_time);
 
-        // --- render once per frame ---
-        glClearColor(0.08f, 0.09f, 0.11f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        if (scene_collides_circle_2d(&scene, camera.position.x, camera.position.y, camera_r)) {
+            //try X only
+            if (!scene_collides_circle_2d(&scene, camera.position.x, oldy, camera_r)) {
+                camera.position.y = oldy;
+            }
+            //try Y only
+            else if (!scene_collides_circle_2d(&scene, oldx, camera.position.y, camera_r)) {
+                camera.position.x = oldx;
+            }
+            //rollback
+            else {
+                camera.position.x = oldx;
+                camera.position.y = oldy;
+            }
+        }
+
+        renderer_begin_frame(0.08f, 0.09f, 0.11f);
 
         camera_apply_view(&camera);
-        draw_grid(50.0f, 1.0f);
-        draw_ground(60.0f, 0.0f);
-        draw_fence(12.0f, 2.0f);
+        scene_render(&scene);
 
-        glDisable(GL_LIGHTING);
-        glColor3f(0.45f, 0.45f, 0.48f);
-        draw_box(3.0f, 2.0f, 0.5f, 1.5f, 1.2f, 1.0f);
-
-        glColor3f(0.30f, 0.22f, 0.10f);
-        draw_box(-4.0f, -1.0f, 1.0f, 0.6f, 0.6f, 2.0f);
-
-        SDL_GL_SwapWindow(window);
+        renderer_end_frame(window);
         }
 
     SDL_GL_DeleteContext(gl_context);
