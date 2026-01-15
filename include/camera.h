@@ -30,4 +30,6 @@ void camera_update(Camera* camera, float delta_time);
 
 void camera_apply_view(const Camera* camera);
 
+void camera_get_forward(const Camera* camera, float* fx, float* fy);
+
 #endif // CAMERA_H

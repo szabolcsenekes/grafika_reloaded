@@ -87,3 +87,9 @@ void camera_apply_view(const Camera* camera) {
 
     glTranslatef(-camera->position.x, -camera->position.y, -camera->position.z);
 }
+
+void camera_get_forward(const Camera* camera, float* fx, float* fy) {
+    float yaw = deg2rad(camera->yaw);
+    *fx = cosf(yaw);
+    *fy = sinf(yaw);
+}

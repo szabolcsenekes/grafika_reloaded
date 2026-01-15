@@ -1,6 +1,7 @@
 #include <SDL2/SDL.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <math.h>
 
 #include "camera.h"
 #include "scene.h"
@@ -58,6 +59,9 @@ int main(int argc, char** argv) {
     scene_add_fence(&scene, 40.0f, 10.0f, 12.0f, 2.0f, true);
     scene_add_fence(&scene, -45.0f, -20.0f, 15.0f, 2.0f, true);
 
+    //gate
+    scene_add_gate(&scene, -1.5f, -25.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
+
     //props
     scene_add_box(&scene, 5.0f, 6.0f, 0.5f, 1.8f, 1.2f, 1.0f, (Color3){0.45f, 0.45f, 0.48f}, true);
     scene_add_box(&scene, -8.0f, 4.0f, 0.4f, 1.0f, 1.0f, 0.8f, (Color3){0.45f, 0.45f, 0.48f}, true);
@@ -114,6 +118,19 @@ int main(int argc, char** argv) {
         // crouch target height
         camera.target_eye_height = keystate[SDL_SCANCODE_LCTRL] ? 1.0f : 1.7f;
 
+        scene.gate_request_to_open = false;
+
+        if (keystate[SDL_SCANCODE_E])
+        {
+            float fx, fy;
+            camera_get_forward(&camera, &fx, &fy);
+
+            if (scene_gate_can_interact(&scene, camera.position.x, camera.position.y, fx, fy))
+            {
+                scene.gate_request_to_open = true;
+            }
+        }
+
         // --- events ---
         SDL_Event event;
         while (SDL_PollEvent(&event))
@@ -164,36 +181,31 @@ int main(int argc, char** argv) {
             }
         }
 
+        scene_update(&scene, delta_time);
         scene_collect_obstacles(&scene);
 
         const float camera_r = 0.35f;
 
-        float oldx = camera.position.x;
-        float oldy = camera.position.y;
+        float max_speed = fabsf(camera.speed_forward) + fabsf(camera.speed_side);
 
-        // --- update once per frame ---
-        camera_update(&camera, delta_time);
+        const float MAX_STEP = camera_r * 0.5f;
+        
+        int steps = (int)ceilf((max_speed * delta_time) / MAX_STEP);
+        if (steps < 1) steps = 1;
+        if (steps > 12) steps = 12;
 
-        if (scene_collides_circle_2d(&scene, camera.position.x, camera.position.y, camera_r)) {
-            //try X only
-            if (!scene_collides_circle_2d(&scene, camera.position.x, oldy, camera_r)) {
-                camera.position.y = oldy;
+        float dt_step = delta_time / (float)steps;
+
+            for (int i = 0; i < steps; i++) {
+                camera_update(&camera, dt_step);
+                scene_resolve_circle_2d(&scene, &camera.position.x, &camera.position.y, camera_r);
             }
-            //try Y only
-            else if (!scene_collides_circle_2d(&scene, oldx, camera.position.y, camera_r)) {
-                camera.position.x = oldx;
-            }
-            //rollback
-            else {
-                camera.position.x = oldx;
-                camera.position.y = oldy;
-            }
-        }
 
         renderer_begin_frame(0.08f, 0.09f, 0.11f);
 
         camera_apply_view(&camera);
         scene_render(&scene);
+        scene_debug_draw_obstacles(&scene);
 
         renderer_end_frame(window);
         }

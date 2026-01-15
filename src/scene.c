@@ -1,6 +1,8 @@
 #include "scene.h"
 
 #include <GL/gl.h>
+
+#define _USE_MATH_DEFINES
 #include <math.h>
 
 static void obs_clear(Scene* scene) {
@@ -13,12 +15,21 @@ static void obs_add(Scene* scene, AABB b) {
     }
 }
 
+static float clampf(float v, float a, float b)
+{
+    return v < a ? a : (v > b ? b : v);
+}
+
+static float deg2radf(float d) {
+    return d * M_PI / 180.0f;
+}
+
 static bool circle_aabb_2d(float cx, float cy, float r, AABB b) {
     float px = (cx < b.minx) ? b.minx : (cx > b.maxx) ? b.maxx : cx;
     float py = (cy < b.miny) ? b.miny : (cy > b.maxy) ? b.maxy : cy;
     float dx = cx - px;
     float dy = cy - py;
-    return (dx * dx + dy * dy) < (r * r);
+    return (dx * dx + dy * dy) <= (r * r);
 }
 
 bool scene_collides_circle_2d(const Scene* scene, float cx, float cy, float r) {
@@ -170,6 +181,9 @@ void scene_init(Scene* scene) {
     scene->box_count = 0;
     scene->fence_count = 0;
     scene->obstacle_count = 0;
+    scene->gate.exists = false;
+    scene->gate.speed_deg_per_s = 120.0f;
+    scene->gate_request_to_open = false;
 }
 
 void scene_add_box(Scene* scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable) {
@@ -192,6 +206,110 @@ void scene_add_fence(Scene* scene, float cx, float cy, float half_size, float wa
     f->collidable = collidable;
 }
 
+void scene_add_gate(Scene* scene, float hinge_x, float hinge_y, float hinge_z, float width, float thickness, float height, Color3 color, float closed_deg, float open_deg) {
+    scene->gate.exists = true;
+    scene->gate.hx = hinge_x;
+    scene->gate.hy = hinge_y;
+    scene->gate.hz = hinge_z;
+    scene->gate.w = width;
+    scene->gate.t = thickness;
+    scene->gate.h = height;
+    scene->gate.color = color;
+
+    scene->gate.closed_deg = closed_deg;
+    scene->gate.open_deg = open_deg;
+
+    scene->gate.angle_deg = closed_deg;
+    scene->gate.target_deg = closed_deg;
+}
+
+
+
+bool scene_gate_can_interact(const Scene* scene, float cam_x, float cam_y, float cam_fx, float cam_fy) {
+    const SceneGate* g = &scene->gate;
+    if(!g->exists) return false;
+
+    float a = deg2radf(g->angle_deg);
+    float ax = g->hx;
+    float ay = g->hy;
+    float bx = g->hx + cosf(a) * g->w;
+    float by = g->hy + sinf(a) * g->w;
+
+    float abx = bx - ax;
+    float aby = by - ay;
+    float apx = cam_x - ax;
+    float apy = cam_y - ay;
+
+    float ab2 = abx * abx + aby * aby;
+    float t = (ab2 > 1e-8f) ? (apx * abx + apy * aby) / ab2 : 0.0f;
+    t = clampf(t, 0.0f, 1.0f);
+
+    float px = ax + abx * t;
+    float py = ay + aby * t;
+
+    float dx = px - cam_x;
+    float dy = py - cam_y;
+    float dist2 = dx * dx + dy * dy;
+
+    const float MAX_DIST = 3.0f;
+    if (dist2 > MAX_DIST * MAX_DIST) return false;
+
+    float len = sqrtf(dist2);
+    if (len < 1e-4f) return true;
+
+    dx /= len;
+    dy /= len;
+
+    float fl = sqrtf(cam_fx * cam_fx + cam_fy * cam_fy);
+    if (fl > 1e-4f) {
+        cam_fx /= fl;
+        cam_fy /= fl;
+    }
+
+    float dot = cam_fx * dx + cam_fy * dy;
+
+    return dot > 0.6f;
+}
+
+void scene_toggle_gate(Scene* scene) {
+    if (!scene->gate.exists) return;
+
+    float deg_to_close = fabsf(scene->gate.target_deg - scene->gate.closed_deg);
+    if (deg_to_close < 0.01f) {
+        scene->gate.target_deg = scene->gate.open_deg;
+    } else {
+        scene->gate.target_deg = scene->gate.closed_deg;
+    }
+}
+
+static void add_gate_obstacles(Scene* scene) {
+    SceneGate* g = &scene->gate;
+    if (!g->exists) return;
+
+    const int SEGMENTS = 6;
+    const float half_h = g->h * 0.5f;
+    const float cz = g->hz + half_h;
+
+    float a = deg2radf(g->angle_deg);
+    float ca = cosf(a);
+    float sa = sinf(a);
+
+    float seg_len = g->w / (float)SEGMENTS;
+
+    for (int i = 0; i < SEGMENTS; i++) {
+        float local_x = (i + 0.5f) * seg_len;
+
+        float wx = g->hx + ca * local_x;
+        float wy = g->hy + sa * local_x;
+
+        float half_w = seg_len * 0.55f;
+
+        obs_add(scene, (AABB){
+            wx - half_w, wy - half_w, cz - half_h, wx + half_w, wy + half_w, cz + half_h
+        });
+    }
+}
+
 void scene_collect_obstacles(Scene* scene) {
     obs_clear(scene);
 
@@ -211,6 +329,27 @@ void scene_collect_obstacles(Scene* scene) {
         obs_add(scene, (AABB){
             b->cx - b->sx * 0.5f, b->cy - b->sy * 0.5f, b->cz - b->sz * 0.5f, b->cx + b->sx * 0.5f, b->cy + b->sy * 0.5f, b->cz + b->sz * 0.5f
         });
+    }
+
+    //gate collision
+    add_gate_obstacles(scene);
+}
+
+void scene_update(Scene* scene, float delta_time) {
+    SceneGate* g = &scene->gate;
+
+    if (!g->exists) return;
+
+    g->target_deg = scene->gate_request_to_open ? g->open_deg : g->closed_deg;
+
+    float delta = g->speed_deg_per_s * delta_time;
+
+    if (g->angle_deg < g->target_deg) {
+        g->angle_deg += delta;
+        if (g->angle_deg > g->target_deg) g->angle_deg = g->target_deg;
+    } else if(g->angle_deg > g->target_deg) {
+        g->angle_deg -= delta;
+        if (g->angle_deg < g->target_deg) g->angle_deg = g->target_deg;
     }
 }
 
@@ -233,4 +372,135 @@ void scene_render(const Scene* scene) {
         glColor3f(b->color.r, b->color.g, b->color.b);
         draw_box(b->cx, b->cy, b->cz, b->sx, b->sy, b->sz);
     }
+
+    //gates
+    if (scene->gate.exists) {
+        glDisable(GL_LIGHTING);
+        glColor3f(scene->gate.color.r, scene->gate.color.g, scene->gate.color.b);
+
+        glPushMatrix();
+
+        glTranslatef(scene->gate.hx, scene->gate.hy, scene->gate.hz);
+
+        glRotatef(scene->gate.angle_deg, 0.0f, 0.0f, 1.0f);
+
+        draw_box(scene->gate.w * 0.5f, 0.0f, scene->gate.h * 0.5f, scene->gate.w, scene->gate.t, scene->gate.h);
+
+        glPopMatrix();
+    }
+}
+
+void scene_debug_draw_obstacles(const Scene* scene) {
+    glDisable(GL_LIGHTING);
+    glColor3f(1, 0, 0);
+
+    for (int i = 0; i < scene->obstacle_count; i++) {
+        const AABB* b = &scene->obstacles[i];
+
+        float x0 = b->minx, x1 = b->maxx;
+        float y0 = b->miny, y1 = b->maxy;
+        float z0 = b->minz, z1 = b->maxz;
+
+        glBegin(GL_LINES);
+
+        // bottom rectangle
+        glVertex3f(x0, y0, z0);
+        glVertex3f(x1, y0, z0);
+        glVertex3f(x1, y0, z0);
+        glVertex3f(x1, y1, z0);
+        glVertex3f(x1, y1, z0);
+        glVertex3f(x0, y1, z0);
+        glVertex3f(x0, y1, z0);
+        glVertex3f(x0, y0, z0);
+
+        // top rectangle
+        glVertex3f(x0, y0, z1);
+        glVertex3f(x1, y0, z1);
+        glVertex3f(x1, y0, z1);
+        glVertex3f(x1, y1, z1);
+        glVertex3f(x1, y1, z1);
+        glVertex3f(x0, y1, z1);
+        glVertex3f(x0, y1, z1);
+        glVertex3f(x0, y0, z1);
+
+        // vertical edges
+        glVertex3f(x0, y0, z0);
+        glVertex3f(x0, y0, z1);
+        glVertex3f(x1, y0, z0);
+        glVertex3f(x1, y0, z1);
+        glVertex3f(x1, y1, z0);
+        glVertex3f(x1, y1, z1);
+        glVertex3f(x0, y1, z0);
+        glVertex3f(x0, y1, z1);
+
+        glEnd();
+    }
+}
+
+bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) {
+    bool moved = false;
+
+    for (int iter = 0; iter < 4; iter++) {
+        bool any = false;
+
+        for (int i = 0; i < scene->obstacle_count; i++) {
+            const AABB* b = &scene->obstacles[i];
+
+            float px = clampf(*cx, b->minx, b->maxx);
+            float py = clampf(*cy, b->miny, b->maxy);
+
+            float dx = *cx - px;
+            float dy = *cy - py;
+            float d2 = dx * dx + dy * dy;
+
+            if (d2 >= r * r) continue;
+
+            if (d2 < 1e-8f) {
+                float left = (*cx - b->minx);
+                float right = (b->maxx - *cx);
+                float down = (*cy - b->miny);
+                float up = (b->maxy - *cy);
+
+                float m = left;
+                int dir = 0;
+
+                if (right < m) {
+                    m = right;
+                    dir = 1;
+                }
+                if (down < m) {
+                    m = down;
+                    dir = 2;
+                }
+                if (up < m) {
+                    m = up;
+                    dir = 3;
+                }
+
+                if (dir == 0) *cx = b->minx - r;
+                if (dir == 1) *cx = b->maxx + r;
+                if (dir == 2) *cx = b->miny - r;
+                if (dir == 3) *cx = b->maxy + r;
+
+                any = true;
+                moved = true;
+                continue;
+            }
+
+            float d = sqrtf(d2);
+            float push = (r - d) + 0.001f;
+            float nx = dx / d;
+            float ny = dy / d;
+
+            *cx += nx * push;
+            *cy += ny * push;
+
+            any = true;
+            moved = false;
+        }
+
+        if (!any) break;
+    }
+
+    return moved;
 }
