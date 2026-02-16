@@ -26,7 +26,9 @@ void camera_init(Camera* camera);
 
 void camera_rotate(Camera* camera, float yaw_delta_deg, float pitch_delta_deg);
 
-void camera_update(Camera* camera, float delta_time);
+void camera_update_xy(Camera* camera, float delta_time);
+
+void camera_update_z(Camera* camera, float delta_time);
 
 void camera_apply_view(const Camera* camera);
 

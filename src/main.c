@@ -6,6 +6,7 @@
 #include "camera.h"
 #include "scene.h"
 #include "renderer.h"
+#include "input.h"
 
 int main(int argc, char** argv) {
     (void)argc;
@@ -54,6 +55,9 @@ int main(int argc, char** argv) {
     Scene scene;
     scene_init(&scene);
 
+    InputState in;
+    input_init(&in);
+
     //enclosures
     scene_add_fence(&scene, 0.0f, 0.0f, 25.0f, 2.0f, true);
     scene_add_fence(&scene, 40.0f, 10.0f, 12.0f, 2.0f, true);
@@ -73,7 +77,6 @@ int main(int argc, char** argv) {
     scene_add_box(&scene, 35.0f, -5.0f, 1.2f, 6.0f, 4.0f, 2.4f, (Color3){0.55f, 0.40f, 0.25f}, true);
 
     bool running = true;
-    bool mouse_captured = false;
 
     uint64_t prev = SDL_GetPerformanceCounter();
     const double freq = (double)SDL_GetPerformanceFrequency();
@@ -83,102 +86,50 @@ int main(int argc, char** argv) {
         uint64_t now = SDL_GetPerformanceCounter();
         float delta_time = (float)((double)(now - prev) / freq);
         prev = now;
-        if (delta_time > 0.05f)
-            delta_time = 0.05f;
+        if (delta_time > 0.05f) delta_time = 0.05f;
 
-        // --- keyboard state ---
-        const Uint8 *keystate = SDL_GetKeyboardState(NULL);
+        input_begin_frame(&in);
+        input_poll_events(&in);
 
-        // base speed (walk/run)
+        if (in.quit) running = false;
+        if (in.resized) renderer_resize(in.win_w, in.win_h);
+        if (input_pressed(&in, SDL_SCANCODE_ESCAPE)) running = false;
+
         float base_speed = WALK_SPEED;
-        if (keystate[SDL_SCANCODE_LSHIFT] || keystate[SDL_SCANCODE_RSHIFT])
-        {
-            base_speed = RUN_SPEED;
-        }
 
-        // crouch affects speed
-        if (keystate[SDL_SCANCODE_LCTRL])
-        {
-            base_speed = WALK_SPEED * CROUCH_MULT;
-        }
+        if (input_down(&in, SDL_SCANCODE_LSHIFT) || input_down(&in, SDL_SCANCODE_RSHIFT)) base_speed = RUN_SPEED;
+        if (input_down(&in, SDL_SCANCODE_LCTRL)) base_speed = WALK_SPEED * CROUCH_MULT;
 
-        // apply movement intent
         camera.speed_forward = 0.0f;
         camera.speed_side = 0.0f;
 
-        if (keystate[SDL_SCANCODE_W])
-            camera.speed_forward += base_speed;
-        if (keystate[SDL_SCANCODE_S])
+        if (input_down(&in, SDL_SCANCODE_W)) camera.speed_forward += base_speed;
+        if (input_down(&in, SDL_SCANCODE_S))
             camera.speed_forward -= base_speed;
-        if (keystate[SDL_SCANCODE_A])
+        if (input_down(&in, SDL_SCANCODE_A))
             camera.speed_side += base_speed;
-        if (keystate[SDL_SCANCODE_D])
+        if (input_down(&in, SDL_SCANCODE_D))
             camera.speed_side -= base_speed;
 
-        // crouch target height
-        camera.target_eye_height = keystate[SDL_SCANCODE_LCTRL] ? 1.0f : 1.7f;
+        camera.target_eye_height = input_down(&in, SDL_SCANCODE_LCTRL) ? 1.0f : 1.7f;
 
-        scene.gate_request_to_open = false;
-
-        if (keystate[SDL_SCANCODE_E])
-        {
-            float fx, fy;
-            camera_get_forward(&camera, &fx, &fy);
-
-            if (scene_gate_can_interact(&scene, camera.position.x, camera.position.y, fx, fy))
-            {
-                scene.gate_request_to_open = true;
-            }
+        if (input_pressed(&in, SDL_SCANCODE_SPACE) && camera.on_ground) {
+            camera.vz = 7.0f;
+            camera.on_ground = 0;
         }
 
-        // --- events ---
-        SDL_Event event;
-        while (SDL_PollEvent(&event))
-        {
-            if (event.type == SDL_QUIT)
-                running = false;
+        if (in.mouse_captured) {
+            float sensitivity = 0.12f;
+            float yaw_delta = -(float)in.mouse_dx * sensitivity;
+            float pitch_delta = -(float)in.mouse_dy * sensitivity;
+            camera_rotate(&camera, yaw_delta, pitch_delta);
+        }
 
-            if (event.type == SDL_WINDOWEVENT && event.window.event == SDL_WINDOWEVENT_RESIZED)
-            {
-                width = event.window.data1;
-                height = event.window.data2;
-                renderer_resize(width, height);
-            }
-
-            if (event.type == SDL_KEYDOWN && event.key.repeat == 0)
-            {
-                if (event.key.keysym.sym == SDLK_ESCAPE)
-                    running = false;
-
-                if (event.key.keysym.sym == SDLK_SPACE)
-                {
-                    if (camera.on_ground)
-                    {
-                        camera.vz = 7.0f;
-                        camera.on_ground = 0;
-                    }
-                }
-            }
-
-            if (event.type == SDL_MOUSEBUTTONDOWN && event.button.button == SDL_BUTTON_RIGHT)
-            {
-                mouse_captured = true;
-                SDL_SetRelativeMouseMode(SDL_TRUE);
-            }
-
-            if (event.type == SDL_MOUSEBUTTONUP && event.button.button == SDL_BUTTON_RIGHT)
-            {
-                mouse_captured = false;
-                SDL_SetRelativeMouseMode(SDL_FALSE);
-            }
-
-            if (event.type == SDL_MOUSEMOTION && mouse_captured)
-            {
-                float sensitivity = 0.12f;
-                float yaw_delta = (float)-event.motion.xrel * sensitivity;
-                float pitch_delta = (float)-event.motion.yrel * sensitivity;
-                camera_rotate(&camera, yaw_delta, pitch_delta);
-            }
+        scene.gate_request_to_open = false;
+        if (input_down(&in, SDL_SCANCODE_E)) {
+            float fx, fy;
+            camera_get_forward(&camera, &fx, &fy);
+            if (scene_gate_can_interact(&scene, camera.position.x, camera.position.y, fx, fy)) scene.gate_request_to_open = true;
         }
 
         scene_update(&scene, delta_time);
@@ -196,10 +147,12 @@ int main(int argc, char** argv) {
 
         float dt_step = delta_time / (float)steps;
 
-            for (int i = 0; i < steps; i++) {
-                camera_update(&camera, dt_step);
-                scene_resolve_circle_2d(&scene, &camera.position.x, &camera.position.y, camera_r);
-            }
+        for (int i = 0; i < steps; i++) {
+            camera_update_xy(&camera, dt_step);
+            scene_resolve_circle_2d(&scene, &camera.position.x, &camera.position.y, camera_r);
+        }
+
+        camera_update_z(&camera, delta_time);
 
         renderer_begin_frame(0.08f, 0.09f, 0.11f);
 

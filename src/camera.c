@@ -39,10 +39,7 @@ void camera_rotate(Camera* camera, float yaw_delta_deg, float pitch_delta_deg) {
     camera->pitch = clampf(camera->pitch, 5.0f, 175.0f);
 }
 
-void camera_update(Camera* camera, float delta_time) {
-    const float GRAVITY = 18.0f;
-    const float GROUND_Z = camera->eye_height;
-
+void camera_update_xy(Camera* camera, float delta_time) {
     float yaw = deg2rad(camera->yaw);
 
     float forward_x = cosf(yaw);
@@ -56,24 +53,27 @@ void camera_update(Camera* camera, float delta_time) {
 
     camera->position.x += right_x * camera->speed_side * delta_time;
     camera->position.y += right_y * camera->speed_side * delta_time;
+}
+
+void camera_update_z(Camera* camera, float delta_time) {
+    const float GRAVITY = 18.0f;
+    const float CROUCH_SPEED = 6.0f;
+
+    //crouch smoothing
+    camera->eye_height += (camera->target_eye_height - camera->eye_height) * CROUCH_SPEED * delta_time;
 
     if (!camera->on_ground) {
         camera->vz -= GRAVITY * delta_time;
         camera->position.z += camera->vz * delta_time;
 
-        if (camera->position.z <= GROUND_Z) {
-            camera->position.z = GROUND_Z;
+        if (camera->position.z <= camera->eye_height) {
+            camera->position.z = camera->eye_height;
             camera->vz = 0.0f;
             camera->on_ground = 1;
         }
-    }
-
-    float crouch_speed = 6.0f;
-
-    camera->eye_height += (camera->target_eye_height - camera->eye_height) * crouch_speed * delta_time;
-
-    if (camera->on_ground) {
+    } else {
         camera->position.z = camera->eye_height;
+        camera->vz = 0.0f;
     }
 }
 

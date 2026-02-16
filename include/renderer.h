@@ -1,5 +1,5 @@
-#ifndef RENDERE_H
-#define RENDERE_H
+#ifndef RENDERER_H
+#define RENDERER_H
 
 void renderer_init(int width, int height);
 
