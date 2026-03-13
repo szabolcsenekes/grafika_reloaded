@@ -13,7 +13,7 @@ static float deg2rad(float degrees) {
 
 void camera_init(Camera* camera) {
     camera->position.x = 0.0f;
-    camera->position.y = 0.0f;
+    camera->position.y = -32.0f;
 
     camera->eye_height = 1.7f;
     camera->target_eye_height = 1.7f;

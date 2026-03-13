@@ -9,4 +9,6 @@ void renderer_begin_frame(float r, float g, float b);
 
 void renderer_end_frame(void* sdl_window);
 
-#endif
+void renderer_apply_light(float intensity);
+
+#endif //RENDERER_H

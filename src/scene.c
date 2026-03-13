@@ -1,4 +1,5 @@
 #include "scene.h"
+#include "model.h"
 
 #include <GL/gl.h>
 
@@ -108,7 +109,7 @@ static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
 }
 
 static void draw_ground(float half_size, float z) {
-    glDisable(GL_LIGHTING);
+    glEnable(GL_LIGHTING);
     glColor3f(0.18f, 0.24f, 0.16f);
     glBegin(GL_QUADS);
     glVertex3f(-half_size, -half_size, z);
@@ -118,8 +119,79 @@ static void draw_ground(float half_size, float z) {
     glEnd();
 }
 
+static float dist2_xy(float ax, float ay, float bx, float by)
+{
+    float dx = ax - bx;
+    float dy = ay - by;
+    return dx * dx + dy * dy;
+}
+
+static void draw_banana_mesh(void)
+{
+    glPushMatrix();
+    glScalef(0.45f, 0.12f, 0.12f);
+    glColor3f(0.95f, 0.85f, 0.15f);
+    draw_box(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
+    glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.26f, 0.0f, 0.03f);
+    glScalef(0.14f, 0.10f, 0.10f);
+    glColor3f(0.88f, 0.78f, 0.10f);
+    draw_box(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
+    glPopMatrix();
+}
+
+static void draw_monkey_mesh(float t, float eat_amount)
+{
+    float arm_anim = sinf(t * 4.0f) * 18.0f * (1.0f - eat_amount);
+    float body_bob = sinf(t * 3.0f) * 0.03f;
+    float head_pitch = eat_amount * 25.0f;
+
+    glPushMatrix();
+    glTranslatef(0.0f, 0.0f, body_bob);
+
+    glEnable(GL_LIGHTING);
+
+    glColor3f(0.38f, 0.25f, 0.14f);
+    draw_box(0.0f, 0.0f, 0.75f, 0.55f, 0.35f, 0.75f);
+
+    glColor3f(0.50f, 0.35f, 0.22f);
+    glPushMatrix();
+    glTranslatef(0.0f, 0.0f, 1.25f);
+    glRotatef(-head_pitch, 1.0f, 0.0f, 0.0f);
+    draw_box(0.0f, 0.0f, 0.0f, 0.42f, 0.36f, 0.42f);
+    glPopMatrix();
+
+    glColor3f(0.33f, 0.20f, 0.12f);
+
+    glPushMatrix();
+    glTranslatef(-0.35f, 0.0f, 0.95f);
+    glRotatef(arm_anim, 0.0f, 1.0f, 0.0f);
+    draw_box(0.0f, 0.0f, -0.18f, 0.14f, 0.14f, 0.58f);
+    glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.35f, 0.0f, 0.95f);
+    glRotatef(-arm_anim, 0.0f, 1.0f, 0.0f);
+    draw_box(0.0f, 0.0f, -0.18f, 0.14f, 0.14f, 0.58f);
+    glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(-0.13f, 0.0f, 0.28f);
+    draw_box(0.0f, 0.0f, -0.15f, 0.16f, 0.16f, 0.55f);
+    glPopMatrix();
+
+    glPushMatrix();
+    glTranslatef(0.13f, 0.0f, 0.28f);
+    draw_box(0.0f, 0.0f, -0.15f, 0.16f, 0.16f, 0.55f);
+    glPopMatrix();
+
+    glPopMatrix();
+}
+
 static void draw_fence_visual(float half_size, float wall_height) {
-    glDisable(GL_LIGHTING);
+    glEnable(GL_LIGHTING);
 
     const float t = 0.25f;
     const float post = 0.35f;
@@ -184,6 +256,12 @@ void scene_init(Scene* scene) {
     scene->gate.exists = false;
     scene->gate.speed_deg_per_s = 120.0f;
     scene->gate_request_to_open = false;
+    scene->rock_model = NULL;
+    scene->rock_count = 0;
+    scene->banana_count = 0;
+    scene->monkey_count = 0;
+    scene->eaten_banana_count = 0;
+    scene->global_time = 0.0f;
 }
 
 void scene_add_box(Scene* scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable) {
@@ -271,6 +349,19 @@ bool scene_gate_can_interact(const Scene* scene, float cam_x, float cam_y, float
     return dot > 0.6f;
 }
 
+void scene_set_rock_model(Scene* scene, const Model* rock_model) {
+    scene->rock_model = rock_model;
+}
+
+void scene_add_rock(Scene* scene, float x, float y, float z, float scale, float yaw_deg, bool collidable) {
+    if (scene->rock_count >= SCENE_MAX_ROCKS) return;
+    SceneRock* r = &scene->rocks[scene->rock_count++];
+    r->x = x; r->y = y; r->z = z;
+    r->scale = scale;
+    r->yaw_deg = yaw_deg;
+    r->collidable = collidable;
+}
+
 void scene_toggle_gate(Scene* scene) {
     if (!scene->gate.exists) return;
 
@@ -331,61 +422,208 @@ void scene_collect_obstacles(Scene* scene) {
         });
     }
 
+    if (scene->rock_model) {
+        const Model* m = scene->rock_model;
+        for (int i = 0; i < scene->rock_count; i++) {
+            const SceneRock* r = &scene->rocks[i];
+            if (!r->collidable) continue;
+
+            float rad = m->radius_xy * r->scale;
+            float minz = r->z + m->local_bounds.minz * r->scale;
+            float maxz = r->z + m->local_bounds.maxz * r->scale;
+
+            obs_add(scene, (AABB){
+                r->x - rad, r->y - rad, minz,
+                r->x + rad, r->y + rad, maxz
+            });
+        }
+    }
+
     //gate collision
     add_gate_obstacles(scene);
 }
 
-void scene_update(Scene* scene, float delta_time) {
-    SceneGate* g = &scene->gate;
+void scene_update(Scene *scene, float delta_time)
+{
+    SceneGate *g = &scene->gate;
 
-    if (!g->exists) return;
+    scene->global_time += delta_time;
 
-    g->target_deg = scene->gate_request_to_open ? g->open_deg : g->closed_deg;
+    if (g->exists)
+    {
+        g->target_deg = scene->gate_request_to_open ? g->open_deg : g->closed_deg;
 
-    float delta = g->speed_deg_per_s * delta_time;
+        float delta = g->speed_deg_per_s * delta_time;
 
-    if (g->angle_deg < g->target_deg) {
-        g->angle_deg += delta;
-        if (g->angle_deg > g->target_deg) g->angle_deg = g->target_deg;
-    } else if(g->angle_deg > g->target_deg) {
-        g->angle_deg -= delta;
-        if (g->angle_deg < g->target_deg) g->angle_deg = g->target_deg;
+        if (g->angle_deg < g->target_deg)
+        {
+            g->angle_deg += delta;
+            if (g->angle_deg > g->target_deg)
+                g->angle_deg = g->target_deg;
+        }
+        else if (g->angle_deg > g->target_deg)
+        {
+            g->angle_deg -= delta;
+            if (g->angle_deg < g->target_deg)
+                g->angle_deg = g->target_deg;
+        }
+    }
+
+    for (int i = 0; i < scene->banana_count; i++)
+    {
+        SceneBanana *b = &scene->bananas[i];
+        if (!b->active)
+            continue;
+
+        if (!b->on_ground)
+        {
+            b->vz -= 14.0f * delta_time;
+
+            b->x += b->vx * delta_time;
+            b->y += b->vy * delta_time;
+            b->z += b->vz * delta_time;
+
+            b->spin_deg += 400.0f * delta_time;
+
+            b->vx *= (1.0f - 0.15f * delta_time);
+            b->vy *= (1.0f - 0.15f * delta_time);
+
+            if (b->z <= 0.18f)
+            {
+                b->z = 0.18f;
+                b->vz = 0.0f;
+                b->vx *= 0.55f;
+                b->vy *= 0.55f;
+                b->on_ground = true;
+            }
+        }
+        else
+        {
+            b->vx *= (1.0f - 2.2f * delta_time);
+            b->vy *= (1.0f - 2.2f * delta_time);
+
+            if (fabsf(b->vx) < 0.05f)
+                b->vx = 0.0f;
+            if (fabsf(b->vy) < 0.05f)
+                b->vy = 0.0f;
+
+            b->x += b->vx * delta_time;
+            b->y += b->vy * delta_time;
+        }
+    }
+
+    for (int i = 0; i < scene->monkey_count; i++)
+    {
+        SceneMonkey *m = &scene->monkeys[i];
+        if (!m->active)
+            continue;
+
+        m->anim_time += delta_time;
+        if (m->eat_timer > 0.0f)
+        {
+            m->eat_timer -= delta_time;
+            if (m->eat_timer < 0.0f)
+                m->eat_timer = 0.0f;
+        }
+
+        for (int j = 0; j < scene->banana_count; j++)
+        {
+            SceneBanana *b = &scene->bananas[j];
+            if (!b->active)
+                continue;
+
+            float d2 = dist2_xy(m->x, m->y, b->x, b->y);
+            float dz = fabsf((m->z + 0.8f) - b->z);
+
+            if (d2 < 1.3f * 1.3f && dz < 1.2f)
+            {
+                b->active = false;
+                m->eat_timer = 1.6f;
+                scene->eaten_banana_count++;
+                break;
+            }
+        }
     }
 }
 
-void scene_render(const Scene* scene) {
+void scene_render(const Scene *scene)
+{
     draw_ground(scene->ground_half_size, 0.0f);
 
-    //fences
-    for (int i = 0; i < scene->fence_count; i++) {
-        const SceneFence* f = &scene->fences[i];
+    for (int i = 0; i < scene->fence_count; i++)
+    {
+        const SceneFence *f = &scene->fences[i];
         glPushMatrix();
         glTranslatef(f->cx, f->cy, 0.0f);
         draw_fence_visual(f->half_size, f->wall_height);
         glPopMatrix();
     }
 
-    //boxes
-    glDisable(GL_LIGHTING);
-    for (int i = 0; i < scene->box_count; i++) {
-        const SceneBox* b = &scene->boxes[i];
+    glEnable(GL_LIGHTING);
+    for (int i = 0; i < scene->box_count; i++)
+    {
+        const SceneBox *b = &scene->boxes[i];
         glColor3f(b->color.r, b->color.g, b->color.b);
         draw_box(b->cx, b->cy, b->cz, b->sx, b->sy, b->sz);
     }
 
-    //gates
-    if (scene->gate.exists) {
-        glDisable(GL_LIGHTING);
+    if (scene->rock_model)
+    {
+        for (int i = 0; i < scene->rock_count; i++)
+        {
+            const SceneRock *r = &scene->rocks[i];
+
+            glPushMatrix();
+            glTranslatef(r->x, r->y, r->z);
+            glRotatef(r->yaw_deg, 0.0f, 0.0f, 1.0f);
+            glScalef(r->scale, r->scale, r->scale);
+            model_draw(scene->rock_model);
+            glPopMatrix();
+        }
+    }
+
+    if (scene->gate.exists)
+    {
+        glEnable(GL_LIGHTING);
         glColor3f(scene->gate.color.r, scene->gate.color.g, scene->gate.color.b);
 
         glPushMatrix();
-
         glTranslatef(scene->gate.hx, scene->gate.hy, scene->gate.hz);
-
         glRotatef(scene->gate.angle_deg, 0.0f, 0.0f, 1.0f);
+        draw_box(scene->gate.w * 0.5f, 0.0f, scene->gate.h * 0.5f,
+                 scene->gate.w, scene->gate.t, scene->gate.h);
+        glPopMatrix();
+    }
 
-        draw_box(scene->gate.w * 0.5f, 0.0f, scene->gate.h * 0.5f, scene->gate.w, scene->gate.t, scene->gate.h);
+    for (int i = 0; i < scene->banana_count; i++)
+    {
+        const SceneBanana *b = &scene->bananas[i];
+        if (!b->active)
+            continue;
 
+        glPushMatrix();
+        glTranslatef(b->x, b->y, b->z);
+        glRotatef(b->yaw_deg, 0.0f, 0.0f, 1.0f);
+        glRotatef(30.0f, 0.0f, 1.0f, 0.0f);
+        glRotatef(b->spin_deg, 1.0f, 0.0f, 0.0f);
+        draw_banana_mesh();
+        glPopMatrix();
+    }
+
+    for (int i = 0; i < scene->monkey_count; i++)
+    {
+        const SceneMonkey *m = &scene->monkeys[i];
+        if (!m->active)
+            continue;
+
+        float eat_amount = (m->eat_timer > 0.0f) ? (m->eat_timer / 1.6f) : 0.0f;
+        if (eat_amount > 1.0f)
+            eat_amount = 1.0f;
+
+        glPushMatrix();
+        glTranslatef(m->x, m->y, m->z);
+        glRotatef(m->yaw_deg, 0.0f, 0.0f, 1.0f);
+        draw_monkey_mesh(m->anim_time, eat_amount);
         glPopMatrix();
     }
 }
@@ -503,4 +741,63 @@ bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) 
     }
 
     return moved;
+}
+
+void scene_add_monkey(Scene *scene, float x, float y, float z, float yaw_deg)
+{
+    if (scene->monkey_count >= SCENE_MAX_MONKEYS)
+        return;
+
+    SceneMonkey *m = &scene->monkeys[scene->monkey_count++];
+    m->active = true;
+    m->x = x;
+    m->y = y;
+    m->z = z;
+    m->yaw_deg = yaw_deg;
+    m->anim_time = 0.0f;
+    m->eat_timer = 0.0f;
+}
+
+void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float vy, float vz)
+{
+    for (int i = 0; i < SCENE_MAX_BANANAS; i++)
+    {
+        SceneBanana *b = &scene->bananas[i];
+
+        if (!b->active)
+        {
+            b->active = true;
+            b->on_ground = false;
+            b->x = x;
+            b->y = y;
+            b->z = z;
+            b->vx = vx;
+            b->vy = vy;
+            b->vz = vz;
+            b->yaw_deg = atan2f(vy, vx) * 180.0f / (float)M_PI;
+            b->spin_deg = 0.0f;
+
+            if (i >= scene->banana_count)
+            {
+                scene->banana_count = i + 1;
+            }
+            return;
+        }
+    }
+}
+
+int scene_get_active_banana_count(const Scene *scene)
+{
+    int count = 0;
+    for (int i = 0; i < scene->banana_count; i++)
+    {
+        if (scene->bananas[i].active)
+            count++;
+    }
+    return count;
+}
+
+int scene_get_eaten_banana_count(const Scene *scene)
+{
+    return scene->eaten_banana_count;
 }

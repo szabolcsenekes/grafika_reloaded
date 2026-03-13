@@ -1,4 +1,5 @@
 #include <SDL2/SDL.h>
+#include <SDL2/SDL_image.h>
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
@@ -7,6 +8,24 @@
 #include "scene.h"
 #include "renderer.h"
 #include "input.h"
+#include "model.h"
+#include "ui.h"
+
+static void print_help(void)
+{
+    printf("\n=== Monkey Zoo - Hasznalati utmutato ===\n");
+    printf("W / A / S / D : mozgas\n");
+    printf("Eger          : kamera forgatas\n");
+    printf("Shift         : futas\n");
+    printf("Ctrl          : guggolas\n");
+    printf("Space         : ugras\n");
+    printf("E             : kapu nyitasa / interakcio\n");
+    printf("Q             : banan eldobasa\n");
+    printf("+ / -         : fenyero novelese / csokkentese\n");
+    printf("F1            : utmutato ki/be\n");
+    printf("ESC           : kilepes\n");
+    printf("=======================================\n\n");
+}
 
 int main(int argc, char** argv) {
     (void)argc;
@@ -19,6 +38,11 @@ int main(int argc, char** argv) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init Error: %s\n", SDL_GetError());
         return 1;
+    }
+
+    int img_flags = IMG_INIT_PNG | IMG_INIT_JPG;
+    if ((IMG_Init(img_flags) & img_flags) != img_flags) {
+        fprintf(stderr, "IMG_Init warning: %s\n", IMG_GetError());
     }
 
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
@@ -58,18 +82,51 @@ int main(int argc, char** argv) {
     InputState in;
     input_init(&in);
 
+    float light_intensity = 1.0f;
+    bool show_help = false;
+
+    Model rock_model;
+    bool rock_loaded = model_load_obj(&rock_model, "assets/rock.obj", "assets/rock.png");
+    if (rock_loaded) {
+        scene_set_rock_model(&scene, &rock_model);
+
+        scene_add_rock(&scene, 5.0f, 6.0f, 2.0f, 8.0f, 25.0f, true);
+        scene_add_rock(&scene, -8.0f, 4.0f, 0.5f, 0.7f, -10.0f, true);
+        scene_add_rock(&scene, 12.0f, -3.0f, 0.7f, 1.1f, 70.0f, true);
+    } else {
+        fprintf(stderr, "Rock model not loaded. Falling back to colored boxes.\n");
+    }
+
     //enclosures
     scene_add_fence(&scene, 0.0f, 0.0f, 25.0f, 2.0f, true);
     scene_add_fence(&scene, 40.0f, 10.0f, 12.0f, 2.0f, true);
     scene_add_fence(&scene, -45.0f, -20.0f, 15.0f, 2.0f, true);
 
+    //monkeys
+    scene_add_monkey(&scene, -8.0f, -8.0f, 0.0f, 0.0f);
+    scene_add_monkey(&scene, 8.0f, 10.0f, 0.0f, 180.0f);
+
+    scene_add_monkey(&scene, 38.0f, 8.0f, 0.0f, 90.0f);
+    scene_add_monkey(&scene, 43.0f, 14.0f, 0.0f, 210.0f);
+
+    scene_add_monkey(&scene, -48.0f, -18.0f, 0.0f, 45.0f);
+    scene_add_monkey(&scene, -40.0f, -24.0f, 0.0f, 300.0f);
+
     //gate
     scene_add_gate(&scene, -1.5f, -25.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
 
+    scene_add_box(&scene, -6.0f, 7.0f, 0.35f, 3.5f, 1.2f, 0.7f, (Color3){0.42f, 0.28f, 0.14f}, true);
+    scene_add_box(&scene, 6.0f, -9.0f, 0.25f, 2.4f, 0.9f, 0.5f, (Color3){0.42f, 0.28f, 0.14f}, true);
+
+    scene_add_box(&scene, 41.0f, 7.0f, 0.3f, 2.8f, 1.0f, 0.6f, (Color3){0.42f, 0.28f, 0.14f}, true);
+    scene_add_box(&scene, -44.0f, -17.0f, 0.3f, 2.8f, 1.0f, 0.6f, (Color3){0.42f, 0.28f, 0.14f}, true);
+
     //props
-    scene_add_box(&scene, 5.0f, 6.0f, 0.5f, 1.8f, 1.2f, 1.0f, (Color3){0.45f, 0.45f, 0.48f}, true);
-    scene_add_box(&scene, -8.0f, 4.0f, 0.4f, 1.0f, 1.0f, 0.8f, (Color3){0.45f, 0.45f, 0.48f}, true);
-    scene_add_box(&scene, 12.0f, -3.0f, 0.6f, 2.2f, 1.4f, 1.2f, (Color3){0.45f, 0.45f, 0.48f}, true);
+    if (!rock_loaded) {
+        scene_add_box(&scene, 5.0f, 6.0f, 0.5f, 1.8f, 1.2f, 1.0f, (Color3){0.45f, 0.45f, 0.48f}, true);
+        scene_add_box(&scene, -8.0f, 4.0f, 0.4f, 1.0f, 1.0f, 0.8f, (Color3){0.45f, 0.45f, 0.48f}, true);
+        scene_add_box(&scene, 12.0f, -3.0f, 0.6f, 2.2f, 1.4f, 1.2f, (Color3){0.45f, 0.45f, 0.48f}, true);
+    }
 
     scene_add_box(&scene, -10.0f, -6.0f, 1.2f, 0.6f, 0.6f, 2.4f, (Color3){0.30f, 0.22f, 0.10f}, true);
     scene_add_box(&scene, 18.0f, 8.0f, 1.5f, 0.7f, 0.7f, 3.0f, (Color3){0.30f, 0.22f, 0.10f}, true);
@@ -95,6 +152,27 @@ int main(int argc, char** argv) {
         if (in.resized) renderer_resize(in.win_w, in.win_h);
         if (input_pressed(&in, SDL_SCANCODE_ESCAPE)) running = false;
 
+        if (input_pressed(&in, SDL_SCANCODE_F1)) {
+            show_help = !show_help;
+
+            if (show_help) {
+                print_help();
+                SDL_SetWindowTitle(window, "Monkey Zoo - F1: help aktiv | WASD mozgas | E kapu | +/- feny");
+            } else {
+                SDL_SetWindowTitle(window, "Monkey Zoo - Empty Scene");
+            }
+        }
+
+        if (input_pressed(&in, SDL_SCANCODE_EQUALS) || input_pressed(&in, SDL_SCANCODE_KP_PLUS)) {
+            light_intensity += 0.1f;
+            if (light_intensity > 2.5f) light_intensity = 2.5f;
+        }
+
+        if (input_pressed(&in, SDL_SCANCODE_MINUS) || input_pressed(&in, SDL_SCANCODE_KP_MINUS)) {
+            light_intensity -= 0.1f;
+            if (light_intensity < 0.1f) light_intensity = 0.1f;
+        }
+
         float base_speed = WALK_SPEED;
 
         if (input_down(&in, SDL_SCANCODE_LSHIFT) || input_down(&in, SDL_SCANCODE_RSHIFT)) base_speed = RUN_SPEED;
@@ -116,6 +194,21 @@ int main(int argc, char** argv) {
         if (input_pressed(&in, SDL_SCANCODE_SPACE) && camera.on_ground) {
             camera.vz = 7.0f;
             camera.on_ground = 0;
+        }
+
+        if (input_pressed(&in, SDL_SCANCODE_Q))
+        {
+            float fx, fy;
+            camera_get_forward(&camera, &fx, &fy);
+
+            scene_throw_banana(
+                &scene,
+                camera.position.x + fx * 0.8f,
+                camera.position.y + fy * 0.8f,
+                camera.position.z - 0.15f,
+                fx * 10.0f,
+                fy * 10.0f,
+                3.8f);
         }
 
         if (in.mouse_captured) {
@@ -157,11 +250,22 @@ int main(int argc, char** argv) {
         renderer_begin_frame(0.08f, 0.09f, 0.11f);
 
         camera_apply_view(&camera);
+        renderer_apply_light(light_intensity);
+
         scene_render(&scene);
         scene_debug_draw_obstacles(&scene);
 
+        if (show_help) {
+            int w, h;
+            SDL_GetWindowSize(window, &w, &h);
+            ui_draw_help_overlay(w, h, light_intensity, scene_get_active_banana_count(&scene), scene_get_eaten_banana_count(&scene));
+        }
+
         renderer_end_frame(window);
         }
+
+    if (rock_loaded) model_free(&rock_model);
+    IMG_Quit();
 
     SDL_GL_DeleteContext(gl_context);
     SDL_DestroyWindow(window);
