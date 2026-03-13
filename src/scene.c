@@ -2,9 +2,14 @@
 #include "model.h"
 
 #include <GL/gl.h>
+#include <stdlib.h>
 
 #define _USE_MATH_DEFINES
 #include <math.h>
+
+static float randf_range(float minv, float maxv) {
+    return minv + (maxv - minv) * ((float)rand() / (float)RAND_MAX);
+}
 
 static void obs_clear(Scene* scene) {
     scene->obstacle_count = 0;
@@ -78,40 +83,66 @@ static void add_fence_obstacles(Scene* scene, float cx, float cy, float half_siz
     });
 }
 
-static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz) {
+static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
+{
     float x0 = cx - sx * 0.5f, x1 = cx + sx * 0.5f;
     float y0 = cy - sy * 0.5f, y1 = cy + sy * 0.5f;
     float z0 = cz - sz * 0.5f, z1 = cz + sz * 0.5f;
 
     glBegin(GL_QUADS);
 
-    //top
-    glVertex3f(x0, y0, z1); glVertex3f(x1, y0, z1); glVertex3f(x1, y1, z1); glVertex3f(x0, y1, z1);
+    // top
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(x0, y0, z1);
+    glVertex3f(x1, y0, z1);
+    glVertex3f(x1, y1, z1);
+    glVertex3f(x0, y1, z1);
 
-    //bottom
-    glVertex3f(x0, y0, z0); glVertex3f(x0, y1, z0);
-    glVertex3f(x1, y1, z0); glVertex3f(x1, y0, z0);
+    // bottom
+    glNormal3f(0.0f, 0.0f, -1.0f);
+    glVertex3f(x0, y1, z0);
+    glVertex3f(x1, y1, z0);
+    glVertex3f(x1, y0, z0);
+    glVertex3f(x0, y0, z0);
 
-    //front(y1)
-    glVertex3f(x0, y1, z0); glVertex3f(x0, y1, z1); glVertex3f(x1, y1, z1); glVertex3f(x1, y1, z0);
+    // front (+Y)
+    glNormal3f(0.0f, 1.0f, 0.0f);
+    glVertex3f(x0, y1, z0);
+    glVertex3f(x0, y1, z1);
+    glVertex3f(x1, y1, z1);
+    glVertex3f(x1, y1, z0);
 
-    //back(y0)
-    glVertex3f(x0, y0, z0); glVertex3f(x1, y0, z0); glVertex3f(x1, y0, z1); glVertex3f(x0, y0, z1);
+    // back (-Y)
+    glNormal3f(0.0f, -1.0f, 0.0f);
+    glVertex3f(x0, y0, z0);
+    glVertex3f(x1, y0, z0);
+    glVertex3f(x1, y0, z1);
+    glVertex3f(x0, y0, z1);
 
-    //left(x0)
-    glVertex3f(x0, y0, z0); glVertex3f(x0, y0, z1); glVertex3f(x0, y1, z1); glVertex3f(x0, y1, z0);
+    // left (-X)
+    glNormal3f(-1.0f, 0.0f, 0.0f);
+    glVertex3f(x0, y0, z0);
+    glVertex3f(x0, y0, z1);
+    glVertex3f(x0, y1, z1);
+    glVertex3f(x0, y1, z0);
 
-    //right(x1)
-    glVertex3f(x1, y0, z0); glVertex3f(x1, y1, z0);
-    glVertex3f(x1, y1, z1); glVertex3f(x1, y0, z1);
+    // right (+X)
+    glNormal3f(1.0f, 0.0f, 0.0f);
+    glVertex3f(x1, y0, z0);
+    glVertex3f(x1, y1, z0);
+    glVertex3f(x1, y1, z1);
+    glVertex3f(x1, y0, z1);
 
     glEnd();
 }
 
-static void draw_ground(float half_size, float z) {
+static void draw_ground(float half_size, float z)
+{
     glEnable(GL_LIGHTING);
     glColor3f(0.18f, 0.24f, 0.16f);
+
     glBegin(GL_QUADS);
+    glNormal3f(0.0f, 0.0f, 1.0f);
     glVertex3f(-half_size, -half_size, z);
     glVertex3f(half_size, -half_size, z);
     glVertex3f(half_size, half_size, z);
@@ -248,7 +279,8 @@ static void draw_fence_visual(float half_size, float wall_height) {
     draw_box(gate_x1, gate_y, wall_height * 0.5f, post, post, wall_height);
 }
 
-void scene_init(Scene* scene) {
+void scene_init(Scene *scene)
+{
     scene->ground_half_size = 200.0f;
     scene->box_count = 0;
     scene->fence_count = 0;
@@ -256,12 +288,18 @@ void scene_init(Scene* scene) {
     scene->gate.exists = false;
     scene->gate.speed_deg_per_s = 120.0f;
     scene->gate_request_to_open = false;
+
     scene->rock_model = NULL;
     scene->rock_count = 0;
-    scene->banana_count = 0;
+
+    scene->monkey_model = NULL;
     scene->monkey_count = 0;
-    scene->eaten_banana_count = 0;
+
+    scene->banana_model = NULL;
+    scene->banana_count = 0;
+
     scene->global_time = 0.0f;
+    scene->eaten_banana_count = 0;
 }
 
 void scene_add_box(Scene* scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable) {
@@ -439,6 +477,46 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
+    if (scene->monkey_model)
+    {
+        const Model *m = scene->monkey_model;
+        for (int i = 0; i < scene->monkey_count; i++)
+        {
+            const SceneMonkey *mk = &scene->monkeys[i];
+            if (!mk->active || !mk->collidable)
+                continue;
+
+            float z_lift = -m->local_bounds.minz * mk->scale;
+            float base_z = mk->z + z_lift;
+
+            float rad = m->radius_xy * mk->scale;
+            float minz = base_z + m->local_bounds.minz * mk->scale;
+            float maxz = base_z + m->local_bounds.maxz * mk->scale;
+
+            obs_add(scene, (AABB){mk->x - rad, mk->y - rad, minz, mk->x + rad, mk->y + rad, maxz});
+        }
+    }
+
+    if (scene->banana_model)
+    {
+        for (int i = 0; i < scene->banana_count; i++)
+        {
+            const SceneBanana *b = &scene->bananas[i];
+            if (!b->active || !b->collidable)
+                continue;
+
+            float rad = 0.16f * b->scale;
+
+            float bottom_offset = 0.60f * b->scale;
+            float height = 1.35f * b->scale;
+
+            float minz = b->z - bottom_offset;
+            float maxz = minz + height;
+
+            obs_add(scene, (AABB){b->x - rad, b->y - rad, minz, b->x + rad, b->y + rad, maxz});
+        }
+    }
+
     //gate collision
     add_gate_obstacles(scene);
 }
@@ -477,68 +555,70 @@ void scene_update(Scene *scene, float delta_time)
 
         if (!b->on_ground)
         {
-            b->vz -= 14.0f * delta_time;
+            b->vz -= 9.81f * delta_time;
 
             b->x += b->vx * delta_time;
             b->y += b->vy * delta_time;
             b->z += b->vz * delta_time;
 
-            b->spin_deg += 400.0f * delta_time;
+            b->spin_deg += b->spin_speed_deg * delta_time;
 
-            b->vx *= (1.0f - 0.15f * delta_time);
-            b->vy *= (1.0f - 0.15f * delta_time);
-
-            if (b->z <= 0.18f)
+            if (b->z <= 0.0f)
             {
-                b->z = 0.18f;
-                b->vz = 0.0f;
-                b->vx *= 0.55f;
-                b->vy *= 0.55f;
-                b->on_ground = true;
+                b->z = 0.0f;
+
+                b->vx *= 0.45f;
+                b->vy *= 0.45f;
+                b->vz *= -0.18f;
+
+                if (fabsf(b->vz) < 0.25f)
+                {
+                    b->z = 0.0f;
+                    b->vz = 0.0f;
+                    b->vx *= 0.6f;
+                    b->vy *= 0.6f;
+                    b->on_ground = true;
+
+                    b->spin_deg = 0.0f;
+                    b->pitch_deg = 90.0f;
+                }
             }
         }
         else
         {
-            b->vx *= (1.0f - 2.2f * delta_time);
-            b->vy *= (1.0f - 2.2f * delta_time);
+            b->vx *= powf(0.20f, delta_time);
+            b->vy *= powf(0.20f, delta_time);
 
-            if (fabsf(b->vx) < 0.05f)
+            if (fabsf(b->vx) < 0.03f)
                 b->vx = 0.0f;
-            if (fabsf(b->vy) < 0.05f)
+            if (fabsf(b->vy) < 0.03f)
                 b->vy = 0.0f;
 
             b->x += b->vx * delta_time;
             b->y += b->vy * delta_time;
-        }
-    }
 
-    for (int i = 0; i < scene->monkey_count; i++)
-    {
-        SceneMonkey *m = &scene->monkeys[i];
-        if (!m->active)
-            continue;
-
-        m->anim_time += delta_time;
-        if (m->eat_timer > 0.0f)
-        {
-            m->eat_timer -= delta_time;
-            if (m->eat_timer < 0.0f)
-                m->eat_timer = 0.0f;
+            b->z = 0.0f;
+            b->spin_deg = 0.0f;
         }
 
-        for (int j = 0; j < scene->banana_count; j++)
+        for (int j = 0; j < scene->monkey_count; j++)
         {
-            SceneBanana *b = &scene->bananas[j];
-            if (!b->active)
+            SceneMonkey *m = &scene->monkeys[j];
+            if (!m->active)
                 continue;
 
-            float d2 = dist2_xy(m->x, m->y, b->x, b->y);
-            float dz = fabsf((m->z + 0.8f) - b->z);
+            float monkey_z = m->z + 0.9f * m->scale;
 
-            if (d2 < 1.3f * 1.3f && dz < 1.2f)
+            float dx = b->x - m->x;
+            float dy = b->y - m->y;
+            float dz = b->z - monkey_z;
+
+            float eat_r = m->eat_radius;
+            float d2 = dx * dx + dy * dy + dz * dz;
+
+            if (d2 <= eat_r * eat_r)
             {
                 b->active = false;
-                m->eat_timer = 1.6f;
                 scene->eaten_banana_count++;
                 break;
             }
@@ -590,41 +670,49 @@ void scene_render(const Scene *scene)
         glPushMatrix();
         glTranslatef(scene->gate.hx, scene->gate.hy, scene->gate.hz);
         glRotatef(scene->gate.angle_deg, 0.0f, 0.0f, 1.0f);
-        draw_box(scene->gate.w * 0.5f, 0.0f, scene->gate.h * 0.5f,
-                 scene->gate.w, scene->gate.t, scene->gate.h);
+        draw_box(scene->gate.w * 0.5f, 0.0f, scene->gate.h * 0.5f, scene->gate.w, scene->gate.t, scene->gate.h);
         glPopMatrix();
     }
 
-    for (int i = 0; i < scene->banana_count; i++)
+    if (scene->monkey_model)
     {
-        const SceneBanana *b = &scene->bananas[i];
-        if (!b->active)
-            continue;
+        for (int i = 0; i < scene->monkey_count; i++)
+        {
+            const SceneMonkey *m = &scene->monkeys[i];
+            if (!m->active)
+                continue;
 
-        glPushMatrix();
-        glTranslatef(b->x, b->y, b->z);
-        glRotatef(b->yaw_deg, 0.0f, 0.0f, 1.0f);
-        glRotatef(30.0f, 0.0f, 1.0f, 0.0f);
-        glRotatef(b->spin_deg, 1.0f, 0.0f, 0.0f);
-        draw_banana_mesh();
-        glPopMatrix();
+            float z_lift = -scene->monkey_model->local_bounds.minz * m->scale;
+
+            glPushMatrix();
+            glTranslatef(m->x, m->y, m->z + z_lift);
+            glRotatef(m->yaw_deg, 0.0f, 0.0f, 1.0f);
+            glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+            glScalef(m->scale, m->scale, m->scale);
+            model_draw(scene->monkey_model);
+            glPopMatrix();
+        }
     }
 
-    for (int i = 0; i < scene->monkey_count; i++)
+    if (scene->banana_model)
     {
-        const SceneMonkey *m = &scene->monkeys[i];
-        if (!m->active)
-            continue;
+        for (int i = 0; i < scene->banana_count; i++)
+        {
+            const SceneBanana *b = &scene->bananas[i];
+            if (!b->active)
+                continue;
 
-        float eat_amount = (m->eat_timer > 0.0f) ? (m->eat_timer / 1.6f) : 0.0f;
-        if (eat_amount > 1.0f)
-            eat_amount = 1.0f;
+            float z_lift = -scene->banana_model->local_bounds.minz * b->scale;
 
-        glPushMatrix();
-        glTranslatef(m->x, m->y, m->z);
-        glRotatef(m->yaw_deg, 0.0f, 0.0f, 1.0f);
-        draw_monkey_mesh(m->anim_time, eat_amount);
-        glPopMatrix();
+            glPushMatrix();
+            glTranslatef(b->x, b->y, b->z + z_lift);
+            glRotatef(b->yaw_deg, 0.0f, 0.0f, 1.0f);
+            glRotatef(b->pitch_deg, 1.0f, 0.0f, 0.0f);
+            glRotatef(-b->spin_deg, 0.0f, 1.0f, 0.0f);
+            glScalef(b->scale, b->scale, b->scale);
+            model_draw(scene->banana_model);
+            glPopMatrix();
+        }
     }
 }
 
@@ -734,28 +822,13 @@ bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) 
             *cy += ny * push;
 
             any = true;
-            moved = false;
+            moved = true;
         }
 
         if (!any) break;
     }
 
     return moved;
-}
-
-void scene_add_monkey(Scene *scene, float x, float y, float z, float yaw_deg)
-{
-    if (scene->monkey_count >= SCENE_MAX_MONKEYS)
-        return;
-
-    SceneMonkey *m = &scene->monkeys[scene->monkey_count++];
-    m->active = true;
-    m->x = x;
-    m->y = y;
-    m->z = z;
-    m->yaw_deg = yaw_deg;
-    m->anim_time = 0.0f;
-    m->eat_timer = 0.0f;
 }
 
 void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float vy, float vz)
@@ -768,14 +841,25 @@ void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float
         {
             b->active = true;
             b->on_ground = false;
+
             b->x = x;
             b->y = y;
             b->z = z;
+
             b->vx = vx;
             b->vy = vy;
             b->vz = vz;
-            b->yaw_deg = atan2f(vy, vx) * 180.0f / (float)M_PI;
-            b->spin_deg = 0.0f;
+
+            b->scale = randf_range(0.9f, 1.1f);
+            b->yaw_deg = atan2f(vy, vx) * 180.0f / (float)M_PI + randf_range(-20.0f, 20.0f);
+            b->pitch_deg = 0.0f;
+
+            b->spin_deg = randf_range(0.0f, 360.0f);
+            b->spin_speed_deg = randf_range(540.0f, 980.0f);
+
+            b->slide_drag = randf_range(0.18f, 0.55f);
+
+            b->collidable = false;
 
             if (i >= scene->banana_count)
             {
@@ -800,4 +884,48 @@ int scene_get_active_banana_count(const Scene *scene)
 int scene_get_eaten_banana_count(const Scene *scene)
 {
     return scene->eaten_banana_count;
+}
+
+void scene_set_monkey_model(Scene *scene, const Model *monkey_model)
+{
+    scene->monkey_model = monkey_model;
+}
+
+void scene_add_monkey(Scene *scene, float x, float y, float z, float scale, float yaw_deg, float eat_radius, bool collidable)
+{
+    if (scene->monkey_count >= SCENE_MAX_MONKEYS)
+        return;
+    SceneMonkey *m = &scene->monkeys[scene->monkey_count++];
+    m->x = x;
+    m->y = y;
+    m->z = z;
+    m->scale = scale;
+    m->yaw_deg = yaw_deg;
+    m->eat_radius = eat_radius;
+    m->collidable = collidable;
+    m->active = true;
+}
+
+void scene_set_banana_model(Scene *scene, const Model *banana_model)
+{
+    scene->banana_model = banana_model;
+}
+
+void scene_add_banana(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable)
+{
+    if (scene->banana_count >= SCENE_MAX_BANANAS)
+        return;
+    SceneBanana *b = &scene->bananas[scene->banana_count++];
+    b->x = x;
+    b->y = y;
+    b->z = z;
+    b->scale = scale;
+    b->yaw_deg = yaw_deg;
+    b->collidable = collidable;
+    b->active = true;
+}
+
+void scene_begin_frame(Scene *scene)
+{
+    (void)scene;
 }

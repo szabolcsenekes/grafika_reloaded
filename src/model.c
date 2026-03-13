@@ -289,7 +289,7 @@ bool model_load_obj_with_ao(Model *out, const char *obj_path, const char *tex_pa
 
                         V2 tt = uvs[puv];
                         mv.u = tt.u;
-                        mv.v = 1.0f - tt.v;
+                        mv.v = tt.v;
 
                         out->has_uvs = true;
                     }

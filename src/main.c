@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <math.h>
+#include <stdlib.h>
+#include <time.h>
 
 #include "camera.h"
 #include "scene.h"
@@ -10,6 +12,11 @@
 #include "input.h"
 #include "model.h"
 #include "ui.h"
+
+static float randf_range(float minv, float maxv)
+{
+    return minv + (maxv - minv) * ((float)rand() / (float)RAND_MAX);
+}
 
 static void print_help(void)
 {
@@ -85,6 +92,8 @@ int main(int argc, char** argv) {
     float light_intensity = 1.0f;
     bool show_help = false;
 
+    srand((unsigned int)time(NULL));
+
     Model rock_model;
     bool rock_loaded = model_load_obj(&rock_model, "assets/rock.obj", "assets/rock.png");
     if (rock_loaded) {
@@ -102,15 +111,30 @@ int main(int argc, char** argv) {
     scene_add_fence(&scene, 40.0f, 10.0f, 12.0f, 2.0f, true);
     scene_add_fence(&scene, -45.0f, -20.0f, 15.0f, 2.0f, true);
 
-    //monkeys
-    scene_add_monkey(&scene, -8.0f, -8.0f, 0.0f, 0.0f);
-    scene_add_monkey(&scene, 8.0f, 10.0f, 0.0f, 180.0f);
+    Model monkey_model;
+    bool monkey_loaded = model_load_obj(&monkey_model, "assets/monkey.obj", "assets/monkey.png");
+    if (monkey_loaded)
+    {
+        scene_set_monkey_model(&scene, &monkey_model);
 
-    scene_add_monkey(&scene, 38.0f, 8.0f, 0.0f, 90.0f);
-    scene_add_monkey(&scene, 43.0f, 14.0f, 0.0f, 210.0f);
+        scene_add_monkey(&scene, 6.0f, 2.0f, 0.0f, 3.5f, 180.0f, 1.8f, true);
+        scene_add_monkey(&scene, -5.0f, 5.0f, 0.0f, 3.2f, 45.0f, 1.8f, true);
+    }
+    else
+    {
+        fprintf(stderr, "Monkey model not loaded.\n");
+    }
 
-    scene_add_monkey(&scene, -48.0f, -18.0f, 0.0f, 45.0f);
-    scene_add_monkey(&scene, -40.0f, -24.0f, 0.0f, 300.0f);
+    Model banana_model;
+    bool banana_loaded = model_load_obj(&banana_model, "assets/banana.obj", "assets/banana.png");
+    if (banana_loaded)
+    {
+        scene_set_banana_model(&scene, &banana_model);
+    }
+    else
+    {
+        fprintf(stderr, "Banana model not loaded.\n");
+    }
 
     //gate
     scene_add_gate(&scene, -1.5f, -25.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
@@ -201,14 +225,25 @@ int main(int argc, char** argv) {
             float fx, fy;
             camera_get_forward(&camera, &fx, &fy);
 
+            float side_x = -fy;
+            float side_y = fx;
+
+            float forward_speed = randf_range(8.5f, 11.5f);
+            float side_offset = randf_range(-1.4f, 1.4f);
+            float up_speed = randf_range(3.2f, 4.6f);
+
+            float throw_vx = fx * forward_speed + side_x * side_offset;
+            float throw_vy = fy * forward_speed + side_y * side_offset;
+            float throw_vz = up_speed;
+
             scene_throw_banana(
                 &scene,
                 camera.position.x + fx * 0.8f,
                 camera.position.y + fy * 0.8f,
                 camera.position.z - 0.15f,
-                fx * 10.0f,
-                fy * 10.0f,
-                3.8f);
+                throw_vx,
+                throw_vy,
+                throw_vz);
         }
 
         if (in.mouse_captured) {
@@ -264,11 +299,16 @@ int main(int argc, char** argv) {
         renderer_end_frame(window);
         }
 
-    if (rock_loaded) model_free(&rock_model);
-    IMG_Quit();
+        if (banana_loaded)
+            model_free(&banana_model);
+        if (monkey_loaded)
+            model_free(&monkey_model);
+        if (rock_loaded)
+            model_free(&rock_model);
+        IMG_Quit();
 
-    SDL_GL_DeleteContext(gl_context);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    return 0;
+        SDL_GL_DeleteContext(gl_context);
+        SDL_DestroyWindow(window);
+        SDL_Quit();
+        return 0;
     }
