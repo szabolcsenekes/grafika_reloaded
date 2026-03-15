@@ -26,8 +26,68 @@ static float clampf(float v, float a, float b)
     return v < a ? a : (v > b ? b : v);
 }
 
+static bool sphere_aabb_hit(float cx, float cy, float cz, float r, const AABB *b)
+{
+    float px = clampf(cx, b->minx, b->maxx);
+    float py = clampf(cy, b->miny, b->maxy);
+    float pz = clampf(cz, b->minz, b->maxz);
+
+    float dx = cx - px;
+    float dy = cy - py;
+    float dz = cz - pz;
+
+    return (dx * dx + dy * dy + dz * dz) <= (r * r);
+}
+
+static bool banana_hits_any_obstacle(const Scene *scene, float x, float y, float z, float r)
+{
+    for (int i = 0; i < scene->obstacle_count; i++)
+    {
+        if (sphere_aabb_hit(x, y, z, r, &scene->obstacles[i]))
+            return true;
+    }
+    return false;
+}
+
 static float deg2radf(float d) {
     return d * M_PI / 180.0f;
+}
+
+static bool segment_sphere_hit(
+    float x0, float y0, float z0,
+    float x1, float y1, float z1,
+    float cx, float cy, float cz,
+    float r)
+{
+    float dx = x1 - x0;
+    float dy = y1 - y0;
+    float dz = z1 - z0;
+
+    float fx = x0 - cx;
+    float fy = y0 - cy;
+    float fz = z0 - cz;
+
+    float a = dx * dx + dy * dy + dz * dz;
+    if (a < 1e-8f)
+    {
+        float ddx = x0 - cx;
+        float ddy = y0 - cy;
+        float ddz = z0 - cz;
+        return (ddx * ddx + ddy * ddy + ddz * ddz) <= r * r;
+    }
+
+    float t = -(fx * dx + fy * dy + fz * dz) / a;
+    t = clampf(t, 0.0f, 1.0f);
+
+    float px = x0 + dx * t;
+    float py = y0 + dy * t;
+    float pz = z0 + dz * t;
+
+    float qx = px - cx;
+    float qy = py - cy;
+    float qz = pz - cz;
+
+    return (qx * qx + qy * qy + qz * qz) <= r * r;
 }
 
 static bool circle_aabb_2d(float cx, float cy, float r, AABB b) {
@@ -298,6 +358,9 @@ void scene_init(Scene *scene)
     scene->banana_model = NULL;
     scene->banana_count = 0;
 
+    scene->tree_model = NULL;
+    scene->tree_count = 0;
+
     scene->global_time = 0.0f;
     scene->eaten_banana_count = 0;
 }
@@ -460,20 +523,47 @@ void scene_collect_obstacles(Scene* scene) {
         });
     }
 
-    if (scene->rock_model) {
-        const Model* m = scene->rock_model;
-        for (int i = 0; i < scene->rock_count; i++) {
-            const SceneRock* r = &scene->rocks[i];
-            if (!r->collidable) continue;
+    if (scene->tree_model)
+    {
+        for (int i = 0; i < scene->tree_count; i++)
+        {
+            const SceneTree *t = &scene->trees[i];
+            if (!t->collidable)
+                continue;
 
-            float rad = m->radius_xy * r->scale;
-            float minz = r->z + m->local_bounds.minz * r->scale;
-            float maxz = r->z + m->local_bounds.maxz * r->scale;
+            float trunk_half = 0.22f * t->scale;
+            float trunk_h = 2.2f * t->scale;
 
             obs_add(scene, (AABB){
-                r->x - rad, r->y - rad, minz,
-                r->x + rad, r->y + rad, maxz
-            });
+                               t->x - trunk_half,
+                               t->y - trunk_half,
+                               t->z,
+                               t->x + trunk_half,
+                               t->y + trunk_half,
+                               t->z + trunk_h});
+        }
+    }
+
+    if (scene->rock_model)
+    {
+        const Model *m = scene->rock_model;
+        for (int i = 0; i < scene->rock_count; i++)
+        {
+            const SceneRock *r = &scene->rocks[i];
+            if (!r->collidable)
+                continue;
+
+            float inset_xy = -0.09f * r->scale;
+            float lift_z = 0.10f * r->scale;
+
+            float minx = r->x + m->local_bounds.minx * r->scale + inset_xy;
+            float maxx = r->x + m->local_bounds.maxx * r->scale - inset_xy;
+            float miny = r->y + m->local_bounds.miny * r->scale + inset_xy;
+            float maxy = r->y + m->local_bounds.maxy * r->scale - inset_xy;
+            float minz = r->z + m->local_bounds.minz * r->scale + lift_z;
+            float maxz = r->z + m->local_bounds.maxz * r->scale;
+
+            obs_add(scene, (AABB){minx, miny, minz, maxx, maxy, maxz});
         }
     }
 
@@ -497,6 +587,27 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
+    if (scene->tree_model)
+    {
+        for (int i = 0; i < scene->tree_count; i++)
+        {
+            const SceneTree *t = &scene->trees[i];
+            if (!t->collidable)
+                continue;
+
+            float trunk_half = 0.22f * t->scale;
+            float trunk_h = 2.2f * t->scale;
+
+            obs_add(scene, (AABB){
+                               t->x - trunk_half,
+                               t->y - trunk_half,
+                               t->z,
+                               t->x + trunk_half,
+                               t->y + trunk_half,
+                               t->z + trunk_h});
+        }
+    }
+
     if (scene->banana_model)
     {
         for (int i = 0; i < scene->banana_count; i++)
@@ -517,7 +628,6 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
-    //gate collision
     add_gate_obstacles(scene);
 }
 
@@ -526,6 +636,7 @@ void scene_update(Scene *scene, float delta_time)
     SceneGate *g = &scene->gate;
 
     scene->global_time += delta_time;
+    scene_collect_obstacles(scene);
 
     if (g->exists)
     {
@@ -557,37 +668,127 @@ void scene_update(Scene *scene, float delta_time)
         {
             b->vz -= 9.81f * delta_time;
 
-            b->x += b->vx * delta_time;
-            b->y += b->vy * delta_time;
-            b->z += b->vz * delta_time;
+            b->pitch_deg += b->ang_vel_pitch * delta_time;
+            b->roll_deg += b->ang_vel_roll * delta_time;
 
-            b->spin_deg += b->spin_speed_deg * delta_time;
+            b->vx *= powf(0.995f, delta_time * 60.0f);
+            b->vy *= powf(0.995f, delta_time * 60.0f);
 
-            if (b->z <= 0.0f)
+            const float banana_r = 0.14f * b->scale;
+
+            float next_x = b->x + b->vx * delta_time;
+            float next_y = b->y + b->vy * delta_time;
+            float next_z = b->z + b->vz * delta_time;
+
+            bool eaten = false;
+
+            for (int j = 0; j < scene->monkey_count; j++)
+            {
+                SceneMonkey *m = &scene->monkeys[j];
+                if (!m->active)
+                    continue;
+
+                float a = deg2radf(m->yaw_deg);
+                float fx = cosf(a);
+                float fy = sinf(a);
+
+                float mouth_x = m->x + fx * (0.42f * m->scale);
+                float mouth_y = m->y + fy * (0.42f * m->scale);
+                float mouth_z = m->z + 1.05f * m->scale;
+
+                float eat_r = m->eat_radius + 0.58f * m->scale;
+
+                if (segment_sphere_hit(
+                        b->x, b->y, b->z,
+                        next_x, next_y, next_z,
+                        mouth_x, mouth_y, mouth_z,
+                        eat_r))
+                {
+                    b->active = false;
+                    scene->eaten_banana_count++;
+                    eaten = true;
+                    break;
+                }
+            }
+
+            if (eaten)
+                continue;
+
+            bool hit_any = banana_hits_any_obstacle(scene, next_x, next_y, next_z, banana_r);
+
+            if (!hit_any)
+            {
+                b->x = next_x;
+                b->y = next_y;
+                b->z = next_z;
+            }
+            else
+            {
+                float try_x = b->x + b->vx * delta_time;
+                if (!banana_hits_any_obstacle(scene, try_x, b->y, b->z, banana_r))
+                {
+                    b->x = try_x;
+                }
+                else
+                {
+                    b->vx *= -0.28f;
+                }
+
+                float try_y = b->y + b->vy * delta_time;
+                if (!banana_hits_any_obstacle(scene, b->x, try_y, b->z, banana_r))
+                {
+                    b->y = try_y;
+                }
+                else
+                {
+                    b->vy *= -0.28f;
+                }
+
+                float try_z = b->z + b->vz * delta_time;
+                if (!banana_hits_any_obstacle(scene, b->x, b->y, try_z, banana_r))
+                {
+                    b->z = try_z;
+                }
+                else
+                {
+                    b->vz *= -0.18f;
+                }
+
+                b->vx *= 0.72f;
+                b->vy *= 0.72f;
+                b->vz *= 0.72f;
+
+                b->ang_vel_pitch *= 0.75f;
+                b->ang_vel_roll *= 0.75f;
+            }
+
+            if (b->z < 0.0f)
             {
                 b->z = 0.0f;
 
-                b->vx *= 0.45f;
-                b->vy *= 0.45f;
-                b->vz *= -0.18f;
+                if (fabsf(b->vz) > 1.0f)
+                {
+                    b->vz = -b->vz * 0.18f;
+                    b->vx *= 0.82f;
+                    b->vy *= 0.82f;
 
-                if (fabsf(b->vz) < 0.25f)
+                    b->ang_vel_pitch *= 0.72f;
+                    b->ang_vel_roll *= 0.72f;
+                }
+                else
                 {
                     b->z = 0.0f;
                     b->vz = 0.0f;
-                    b->vx *= 0.6f;
-                    b->vy *= 0.6f;
                     b->on_ground = true;
-
-                    b->spin_deg = 0.0f;
-                    b->pitch_deg = 90.0f;
                 }
             }
         }
         else
         {
-            b->vx *= powf(0.20f, delta_time);
-            b->vy *= powf(0.20f, delta_time);
+            b->z = 0.0f;
+
+            b->vx *= powf(0.08f, delta_time * 60.0f);
+            b->vy *= powf(0.08f, delta_time * 60.0f);
 
             if (fabsf(b->vx) < 0.03f)
                 b->vx = 0.0f;
@@ -597,32 +798,18 @@ void scene_update(Scene *scene, float delta_time)
             b->x += b->vx * delta_time;
             b->y += b->vy * delta_time;
 
-            b->z = 0.0f;
-            b->spin_deg = 0.0f;
+            b->ang_vel_pitch *= 0.85f;
+            b->ang_vel_roll *= 0.85f;
+
+            if (fabsf(b->ang_vel_pitch) < 8.0f)
+                b->ang_vel_pitch = 0.0f;
+            if (fabsf(b->ang_vel_roll) < 8.0f)
+                b->ang_vel_roll = 0.0f;
+
+            b->pitch_deg += b->ang_vel_pitch * delta_time;
+            b->roll_deg += b->ang_vel_roll * delta_time;
         }
 
-        for (int j = 0; j < scene->monkey_count; j++)
-        {
-            SceneMonkey *m = &scene->monkeys[j];
-            if (!m->active)
-                continue;
-
-            float monkey_z = m->z + 0.9f * m->scale;
-
-            float dx = b->x - m->x;
-            float dy = b->y - m->y;
-            float dz = b->z - monkey_z;
-
-            float eat_r = m->eat_radius;
-            float d2 = dx * dx + dy * dy + dz * dz;
-
-            if (d2 <= eat_r * eat_r)
-            {
-                b->active = false;
-                scene->eaten_banana_count++;
-                break;
-            }
-        }
     }
 }
 
@@ -674,6 +861,25 @@ void scene_render(const Scene *scene)
         glPopMatrix();
     }
 
+    if (scene->tree_model)
+    {
+        for (int i = 0; i < scene->tree_count; i++)
+        {
+            const SceneTree *t = &scene->trees[i];
+
+            float z_lift = -scene->tree_model->local_bounds.minz * t->scale;
+            float extra_lift = 0.15f * t->scale;
+
+            glPushMatrix();
+            glTranslatef(t->x, t->y, t->z + z_lift + extra_lift);
+            glRotatef(t->yaw_deg, 0.0f, 0.0f, 1.0f);
+            glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
+            glScalef(t->scale, t->scale, t->scale);
+            model_draw(scene->tree_model);
+            glPopMatrix();
+        }
+    }
+
     if (scene->monkey_model)
     {
         for (int i = 0; i < scene->monkey_count; i++)
@@ -706,9 +912,11 @@ void scene_render(const Scene *scene)
 
             glPushMatrix();
             glTranslatef(b->x, b->y, b->z + z_lift);
+
             glRotatef(b->yaw_deg, 0.0f, 0.0f, 1.0f);
             glRotatef(b->pitch_deg, 1.0f, 0.0f, 0.0f);
-            glRotatef(-b->spin_deg, 0.0f, 1.0f, 0.0f);
+            glRotatef(b->roll_deg, 0.0f, 1.0f, 0.0f);
+
             glScalef(b->scale, b->scale, b->scale);
             model_draw(scene->banana_model);
             glPopMatrix();
@@ -850,21 +1058,20 @@ void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float
             b->vy = vy;
             b->vz = vz;
 
-            b->scale = randf_range(0.9f, 1.1f);
-            b->yaw_deg = atan2f(vy, vx) * 180.0f / (float)M_PI + randf_range(-20.0f, 20.0f);
-            b->pitch_deg = 0.0f;
+            b->scale = 1.0f;
 
-            b->spin_deg = randf_range(0.0f, 360.0f);
-            b->spin_speed_deg = randf_range(540.0f, 980.0f);
+            b->yaw_deg = atan2f(vy, vx) * 180.0f / (float)M_PI + randf_range(-12.0f, 12.0f);
+            b->pitch_deg = randf_range(-20.0f, 20.0f);
+            b->roll_deg = randf_range(-25.0f, 25.0f);
 
-            b->slide_drag = randf_range(0.18f, 0.55f);
+            b->ang_vel_pitch = randf_range(320.0f, 620.0f);
+            b->ang_vel_roll = randf_range(-260.0f, 260.0f);
 
             b->collidable = false;
 
             if (i >= scene->banana_count)
-            {
                 scene->banana_count = i + 1;
-            }
+
             return;
         }
     }
@@ -923,6 +1130,26 @@ void scene_add_banana(Scene *scene, float x, float y, float z, float scale, floa
     b->yaw_deg = yaw_deg;
     b->collidable = collidable;
     b->active = true;
+}
+
+void scene_set_tree_model(Scene *scene, const Model *tree_model)
+{
+    scene->tree_model = tree_model;
+}
+
+void scene_add_tree(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable)
+{
+    if (scene->tree_count >= SCENE_MAX_TREES)
+        return;
+
+    SceneTree *t = &scene->trees[scene->tree_count++];
+
+    t->x = x;
+    t->y = y;
+    t->z = z;
+    t->scale = scale;
+    t->yaw_deg = yaw_deg;
+    t->collidable = collidable;
 }
 
 void scene_begin_frame(Scene *scene)

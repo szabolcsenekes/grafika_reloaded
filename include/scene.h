@@ -2,6 +2,7 @@
 #define SCENE_H
 
 #include <stdbool.h>
+#include "model.h"
 #include "geom.h"
 
 struct Model;
@@ -12,6 +13,7 @@ struct Model;
 #define SCENE_MAX_ROCKS 256
 #define SCENE_MAX_MONKEYS 64
 #define SCENE_MAX_BANANAS 128
+#define SCENE_MAX_TREES 1024
 
 typedef struct
 {
@@ -35,16 +37,28 @@ typedef struct
 {
     float x, y, z;
     float vx, vy, vz;
+
     float scale;
+
     float yaw_deg;
-    float spin_deg;
-    float spin_speed_deg;
-    float slide_drag;
     float pitch_deg;
+    float roll_deg;
+
+    float ang_vel_pitch;
+    float ang_vel_roll;
+
     bool collidable;
     bool active;
     bool on_ground;
 } SceneBanana;
+
+typedef struct
+{
+    float x, y, z;
+    float scale;
+    float yaw_deg;
+    bool collidable;
+} SceneTree;
 
 typedef struct
 {
@@ -101,6 +115,10 @@ typedef struct
     SceneBanana bananas[SCENE_MAX_BANANAS];
     int banana_count;
 
+    const struct Model *tree_model;
+    SceneTree trees[SCENE_MAX_TREES];
+    int tree_count;
+
     int eaten_banana_count;
     float global_time;
 
@@ -130,6 +148,9 @@ void scene_add_banana(Scene *scene, float x, float y, float z, float scale, floa
 void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float vy, float vz);
 int scene_get_active_banana_count(const Scene *scene);
 int scene_get_eaten_banana_count(const Scene *scene);
+
+void scene_set_tree_model(Scene *scene, const Model *tree_model);
+void scene_add_tree(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable);
 
 void scene_toggle_gate(Scene *scene);
 void scene_update(Scene *scene, float delta_time);

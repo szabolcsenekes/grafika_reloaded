@@ -18,6 +18,90 @@ static float randf_range(float minv, float maxv)
     return minv + (maxv - minv) * ((float)rand() / (float)RAND_MAX);
 }
 
+static void generate_trees(Scene *scene, int count)
+{
+    for (int i = 0; i < count; i++)
+    {
+        float x, y;
+        int tries = 0;
+
+        do
+        {
+            x = randf_range(-90.0f, 90.0f);
+            y = randf_range(-90.0f, 90.0f);
+            tries++;
+        } while (
+            tries < 100 &&
+            ((fabsf(x - 0.0f) < 32.0f && fabsf(y - 0.0f) < 32.0f) ||
+             (fabsf(x - 40.0f) < 18.0f && fabsf(y - 10.0f) < 18.0f) ||
+             (fabsf(x + 45.0f) < 20.0f && fabsf(y + 20.0f) < 20.0f)
+             ));
+
+        scene_add_tree(
+            scene,
+            x,
+            y,
+            0.0f,
+            randf_range(5.0f, 8.0f),
+            randf_range(0.0f, 360.0f),
+            true);
+    }
+}
+
+static void generate_border_trees(Scene *scene)
+{
+    const float min_x = -95.0f;
+    const float max_x = 95.0f;
+    const float min_y = -95.0f;
+    const float max_y = 95.0f;
+
+    const float step = 4.0f;
+
+    // felső és alsó oldal
+    for (float x = min_x; x <= max_x; x += step)
+    {
+        scene_add_tree(
+            scene,
+            x + randf_range(-1.5f, 1.5f),
+            max_y + randf_range(-1.0f, 1.0f),
+            0.0f,
+            randf_range(5.0f, 7.5f),
+            randf_range(0.0f, 360.0f),
+            true);
+
+        scene_add_tree(
+            scene,
+            x + randf_range(-1.5f, 1.5f),
+            min_y + randf_range(-1.0f, 1.0f),
+            0.0f,
+            randf_range(5.0f, 7.5f),
+            randf_range(0.0f, 360.0f),
+            true);
+    }
+
+    // bal és jobb oldal
+    for (float y = min_y + step; y <= max_y - step; y += step)
+    {
+        scene_add_tree(
+            scene,
+            min_x + randf_range(-1.0f, 1.0f),
+            y + randf_range(-1.5f, 1.5f),
+            0.0f,
+            randf_range(5.0f, 7.5f),
+            randf_range(0.0f, 360.0f),
+            true);
+
+        scene_add_tree(
+            scene,
+            max_x + randf_range(-1.0f, 1.0f),
+            y + randf_range(-1.5f, 1.5f),
+            0.0f,
+            randf_range(5.0f, 7.5f),
+            randf_range(0.0f, 360.0f),
+            true);
+    }
+}
+
 static void print_help(void)
 {
     printf("\n=== Monkey Zoo - Hasznalati utmutato ===\n");
@@ -134,6 +218,24 @@ int main(int argc, char** argv) {
     else
     {
         fprintf(stderr, "Banana model not loaded.\n");
+    }
+
+    Model tree_model;
+    bool tree_loaded = model_load_obj(&tree_model, "assets/tree.obj", "assets/tree.png");
+    if (tree_loaded)
+    {
+        scene_set_tree_model(&scene, &tree_model);
+
+        generate_border_trees(&scene);
+    }
+    else
+    {
+        fprintf(stderr, "Tree model not loaded.\n");
+    }
+
+    if (tree_loaded)
+    {
+        generate_trees(&scene, 128);
     }
 
     //gate
@@ -305,6 +407,8 @@ int main(int argc, char** argv) {
             model_free(&monkey_model);
         if (rock_loaded)
             model_free(&rock_model);
+        if (tree_loaded)
+            model_free(&tree_model);
         IMG_Quit();
 
         SDL_GL_DeleteContext(gl_context);
