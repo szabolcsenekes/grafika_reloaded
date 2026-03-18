@@ -196,18 +196,67 @@ static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
     glEnd();
 }
 
+static void draw_ground_patch(float x0, float y0, float x1, float y1, float z, float r, float g, float b)
+{
+    glColor3f(r, g, b);
+    glBegin(GL_QUADS);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(x0, y0, z);
+    glVertex3f(x1, y0, z);
+    glVertex3f(x1, y1, z);
+    glVertex3f(x0, y1, z);
+    glEnd();
+}
+
+static void draw_road_segment(float x0, float y0, float x1, float y1, float z)
+{
+    draw_ground_patch(
+        x0 - 1.5f, y0 - 1.5f,
+        x1 + 1.5f, y1 + 1.5f,
+        z,
+        0.48f, 0.50f, 0.30f);
+
+    draw_ground_patch(
+        x0, y0,
+        x1, y1,
+        z + 0.001f,
+        0.58f, 0.48f, 0.30f);
+}
+
 static void draw_ground(float half_size, float z)
 {
     glEnable(GL_LIGHTING);
-    glColor3f(0.18f, 0.24f, 0.16f);
 
-    glBegin(GL_QUADS);
-    glNormal3f(0.0f, 0.0f, 1.0f);
-    glVertex3f(-half_size, -half_size, z);
-    glVertex3f(half_size, -half_size, z);
-    glVertex3f(half_size, half_size, z);
-    glVertex3f(-half_size, half_size, z);
-    glEnd();
+    // base ground
+    draw_ground_patch(-half_size, -half_size, half_size, half_size, z, 0.34f, 0.50f, 0.24f);
+
+    // bigger patches
+    draw_ground_patch(-half_size, -half_size, 0.0f, 0.0f, z + 0.001f, 0.30f, 0.46f, 0.22f);
+    draw_ground_patch(0.0f, -half_size, half_size, 0.0f, z + 0.001f, 0.32f, 0.48f, 0.23f);
+    draw_ground_patch(-half_size, 0.0f, 0.0f, half_size, z + 0.001f, 0.36f, 0.53f, 0.25f);
+    draw_ground_patch(0.0f, 0.0f, half_size, half_size, z + 0.001f, 0.33f, 0.49f, 0.24f);
+
+    // lighter parts around the enclosures
+    draw_ground_patch(-30.0f, -30.0f, 30.0f, 30.0f, z + 0.002f, 0.38f, 0.47f, 0.24f);
+    draw_ground_patch(25.0f, -5.0f, 55.0f, 25.0f, z + 0.002f, 0.39f, 0.48f, 0.25f);
+    draw_ground_patch(-63.0f, -38.0f, -27.0f, -2.0f, z + 0.002f, 0.39f, 0.48f, 0.25f);
+
+    // main road
+    draw_road_segment(-3.0f, -95.0f, 3.0f, -25.0f, z + 0.004f);
+
+    // road to right enclosure
+    draw_road_segment(0.0f, -31.0f, 44.0f, -25.0f, z + 0.004f);
+    draw_road_segment(38.0f, -25.0f, 44.0f, -6.0f, z + 0.0045f);
+    draw_road_segment(36.0f, -6.0f, 44.0f, 0.0f, z + 0.005f);
+
+    // road to left enclosure
+    draw_road_segment(-46.0f, -36.0f, 0.0f, -30.0f, z + 0.004f);
+    draw_road_segment(-49.0f, -38.0f, -43.0f, -32.0f, z + 0.005f);
+
+    // dry patches
+    draw_ground_patch(10.0f, 20.0f, 28.0f, 32.0f, z + 0.003f, 0.46f, 0.50f, 0.26f);
+    draw_ground_patch(-80.0f, 18.0f, -55.0f, 35.0f, z + 0.003f, 0.44f, 0.49f, 0.25f);
+    draw_ground_patch(60.0f, -50.0f, 88.0f, -30.0f, z + 0.003f, 0.45f, 0.50f, 0.26f);
 }
 
 static float dist2_xy(float ax, float ay, float bx, float by)
@@ -345,9 +394,7 @@ void scene_init(Scene *scene)
     scene->box_count = 0;
     scene->fence_count = 0;
     scene->obstacle_count = 0;
-    scene->gate.exists = false;
-    scene->gate.speed_deg_per_s = 120.0f;
-    scene->gate_request_to_open = false;
+    scene->gate_count = 0;
 
     scene->rock_model = NULL;
     scene->rock_count = 0;
@@ -385,69 +432,95 @@ void scene_add_fence(Scene* scene, float cx, float cy, float half_size, float wa
     f->collidable = collidable;
 }
 
-void scene_add_gate(Scene* scene, float hinge_x, float hinge_y, float hinge_z, float width, float thickness, float height, Color3 color, float closed_deg, float open_deg) {
-    scene->gate.exists = true;
-    scene->gate.hx = hinge_x;
-    scene->gate.hy = hinge_y;
-    scene->gate.hz = hinge_z;
-    scene->gate.w = width;
-    scene->gate.t = thickness;
-    scene->gate.h = height;
-    scene->gate.color = color;
+void scene_add_gate(Scene *scene, float hinge_x, float hinge_y, float hinge_z,
+                    float width, float thickness, float height,
+                    Color3 color, float closed_deg, float open_deg)
+{
+    if (scene->gate_count >= SCENE_MAX_GATES)
+        return;
 
-    scene->gate.closed_deg = closed_deg;
-    scene->gate.open_deg = open_deg;
+    SceneGate *g = &scene->gates[scene->gate_count++];
 
-    scene->gate.angle_deg = closed_deg;
-    scene->gate.target_deg = closed_deg;
+    g->exists = true;
+    g->hx = hinge_x;
+    g->hy = hinge_y;
+    g->hz = hinge_z;
+    g->w = width;
+    g->t = thickness;
+    g->h = height;
+    g->color = color;
+
+    g->closed_deg = closed_deg;
+    g->open_deg = open_deg;
+
+    g->angle_deg = closed_deg;
+    g->target_deg = closed_deg;
+    g->speed_deg_per_s = 120.0f;
 }
 
-
-
-bool scene_gate_can_interact(const Scene* scene, float cam_x, float cam_y, float cam_fx, float cam_fy) {
-    const SceneGate* g = &scene->gate;
-    if(!g->exists) return false;
-
-    float a = deg2radf(g->angle_deg);
-    float ax = g->hx;
-    float ay = g->hy;
-    float bx = g->hx + cosf(a) * g->w;
-    float by = g->hy + sinf(a) * g->w;
-
-    float abx = bx - ax;
-    float aby = by - ay;
-    float apx = cam_x - ax;
-    float apy = cam_y - ay;
-
-    float ab2 = abx * abx + aby * aby;
-    float t = (ab2 > 1e-8f) ? (apx * abx + apy * aby) / ab2 : 0.0f;
-    t = clampf(t, 0.0f, 1.0f);
-
-    float px = ax + abx * t;
-    float py = ay + aby * t;
-
-    float dx = px - cam_x;
-    float dy = py - cam_y;
-    float dist2 = dx * dx + dy * dy;
-
-    const float MAX_DIST = 3.0f;
-    if (dist2 > MAX_DIST * MAX_DIST) return false;
-
-    float len = sqrtf(dist2);
-    if (len < 1e-4f) return true;
-
-    dx /= len;
-    dy /= len;
+int scene_find_interactable_gate(const Scene *scene, float cam_x, float cam_y, float cam_fx, float cam_fy)
+{
+    int best_index = -1;
+    float best_dist2 = 1e30f;
 
     float fl = sqrtf(cam_fx * cam_fx + cam_fy * cam_fy);
-    if (fl > 1e-4f) {
+    if (fl > 1e-4f)
+    {
         cam_fx /= fl;
         cam_fy /= fl;
     }
 
-    float dot = cam_fx * dx + cam_fy * dy;
+    for (int gi = 0; gi < scene->gate_count; gi++)
+    {
+        const SceneGate *g = &scene->gates[gi];
+        if (!g->exists)
+            continue;
 
-    return dot > 0.6f;
+        float a = deg2radf(g->angle_deg);
+        float ax = g->hx;
+        float ay = g->hy;
+        float bx = g->hx + cosf(a) * g->w;
+        float by = g->hy + sinf(a) * g->w;
+
+        float abx = bx - ax;
+        float aby = by - ay;
+        float apx = cam_x - ax;
+        float apy = cam_y - ay;
+
+        float ab2 = abx * abx + aby * aby;
+        float t = (ab2 > 1e-8f) ? (apx * abx + apy * aby) / ab2 : 0.0f;
+        t = clampf(t, 0.0f, 1.0f);
+
+        float px = ax + abx * t;
+        float py = ay + aby * t;
+
+        float dx = px - cam_x;
+        float dy = py - cam_y;
+        float dist2 = dx * dx + dy * dy;
+
+        const float MAX_DIST = 3.0f;
+        if (dist2 > MAX_DIST * MAX_DIST)
+            continue;
+
+        float len = sqrtf(dist2);
+        if (len > 1e-4f)
+        {
+            dx /= len;
+            dy /= len;
+
+            float dot = cam_fx * dx + cam_fy * dy;
+            if (dot <= 0.6f)
+                continue;
+        }
+
+        if (dist2 < best_dist2)
+        {
+            best_dist2 = dist2;
+            best_index = gi;
+        }
+    }
+
+    return best_index;
 }
 
 void scene_set_rock_model(Scene* scene, const Model* rock_model) {
@@ -463,42 +536,52 @@ void scene_add_rock(Scene* scene, float x, float y, float z, float scale, float 
     r->collidable = collidable;
 }
 
-void scene_toggle_gate(Scene* scene) {
-    if (!scene->gate.exists) return;
+void scene_toggle_gate(Scene *scene, int gate_index)
+{
+    if (gate_index < 0 || gate_index >= scene->gate_count)
+        return;
 
-    float deg_to_close = fabsf(scene->gate.target_deg - scene->gate.closed_deg);
-    if (deg_to_close < 0.01f) {
-        scene->gate.target_deg = scene->gate.open_deg;
-    } else {
-        scene->gate.target_deg = scene->gate.closed_deg;
-    }
+    SceneGate *g = &scene->gates[gate_index];
+
+    float deg_to_close = fabsf(g->target_deg - g->closed_deg);
+    if (deg_to_close < 0.01f)
+        g->target_deg = g->open_deg;
+    else
+        g->target_deg = g->closed_deg;
 }
 
-static void add_gate_obstacles(Scene* scene) {
-    SceneGate* g = &scene->gate;
-    if (!g->exists) return;
-
+static void add_gate_obstacles(Scene *scene)
+{
     const int SEGMENTS = 6;
-    const float half_h = g->h * 0.5f;
-    const float cz = g->hz + half_h;
 
-    float a = deg2radf(g->angle_deg);
-    float ca = cosf(a);
-    float sa = sinf(a);
+    for (int gi = 0; gi < scene->gate_count; gi++)
+    {
+        SceneGate *g = &scene->gates[gi];
+        if (!g->exists)
+            continue;
 
-    float seg_len = g->w / (float)SEGMENTS;
+        float half_h = g->h * 0.5f;
+        float cz = g->hz + half_h;
 
-    for (int i = 0; i < SEGMENTS; i++) {
-        float local_x = (i + 0.5f) * seg_len;
+        float a = deg2radf(g->angle_deg);
+        float ca = cosf(a);
+        float sa = sinf(a);
 
-        float wx = g->hx + ca * local_x;
-        float wy = g->hy + sa * local_x;
+        float seg_len = g->w / (float)SEGMENTS;
 
-        float half_w = seg_len * 0.55f;
+        for (int i = 0; i < SEGMENTS; i++)
+        {
+            float local_x = (i + 0.5f) * seg_len;
 
-        obs_add(scene, (AABB){
-            wx - half_w, wy - half_w, cz - half_h, wx + half_w, wy + half_w, cz + half_h
-        });
+            float wx = g->hx + ca * local_x;
+            float wy = g->hy + sa * local_x;
+
+            float half_w = seg_len * 0.55f;
+
+            obs_add(scene, (AABB){
+                               wx - half_w, wy - half_w, cz - half_h,
+                               wx + half_w, wy + half_w, cz + half_h});
+        }
     }
 }
 
@@ -633,14 +716,15 @@ void scene_collect_obstacles(Scene* scene) {
 
 void scene_update(Scene *scene, float delta_time)
 {
-    SceneGate *g = &scene->gate;
 
     scene->global_time += delta_time;
     scene_collect_obstacles(scene);
 
-    if (g->exists)
+    for (int gi = 0; gi < scene->gate_count; gi++)
     {
-        g->target_deg = scene->gate_request_to_open ? g->open_deg : g->closed_deg;
+        SceneGate *g = &scene->gates[gi];
+        if (!g->exists)
+            continue;
 
         float delta = g->speed_deg_per_s * delta_time;
 
@@ -849,15 +933,19 @@ void scene_render(const Scene *scene)
         }
     }
 
-    if (scene->gate.exists)
+    for (int gi = 0; gi < scene->gate_count; gi++)
     {
+        const SceneGate *g = &scene->gates[gi];
+        if (!g->exists)
+            continue;
+
         glEnable(GL_LIGHTING);
-        glColor3f(scene->gate.color.r, scene->gate.color.g, scene->gate.color.b);
+        glColor3f(g->color.r, g->color.g, g->color.b);
 
         glPushMatrix();
-        glTranslatef(scene->gate.hx, scene->gate.hy, scene->gate.hz);
-        glRotatef(scene->gate.angle_deg, 0.0f, 0.0f, 1.0f);
-        draw_box(scene->gate.w * 0.5f, 0.0f, scene->gate.h * 0.5f, scene->gate.w, scene->gate.t, scene->gate.h);
+        glTranslatef(g->hx, g->hy, g->hz);
+        glRotatef(g->angle_deg, 0.0f, 0.0f, 1.0f);
+        draw_box(g->w * 0.5f, 0.0f, g->h * 0.5f, g->w, g->t, g->h);
         glPopMatrix();
     }
 

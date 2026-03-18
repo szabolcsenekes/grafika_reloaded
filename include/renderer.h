@@ -11,4 +11,6 @@ void renderer_end_frame(void* sdl_window);
 
 void renderer_apply_light(float intensity);
 
+void renderer_draw_sky_gradient(float intensity);
+
 #endif //RENDERER_H

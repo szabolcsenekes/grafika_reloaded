@@ -55,9 +55,8 @@ static void generate_border_trees(Scene *scene)
     const float min_y = -95.0f;
     const float max_y = 95.0f;
 
-    const float step = 4.0f;
+    const float step = 7.0f;
 
-    // felső és alsó oldal
     for (float x = min_x; x <= max_x; x += step)
     {
         scene_add_tree(
@@ -79,7 +78,6 @@ static void generate_border_trees(Scene *scene)
             true);
     }
 
-    // bal és jobb oldal
     for (float y = min_y + step; y <= max_y - step; y += step)
     {
         scene_add_tree(
@@ -235,11 +233,13 @@ int main(int argc, char** argv) {
 
     if (tree_loaded)
     {
-        generate_trees(&scene, 128);
+        generate_trees(&scene, 64);
     }
 
     //gate
     scene_add_gate(&scene, -1.5f, -25.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
+    scene_add_gate(&scene, 38.5f, -2.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
+    scene_add_gate(&scene, -46.5f, -35.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
 
     scene_add_box(&scene, -6.0f, 7.0f, 0.35f, 3.5f, 1.2f, 0.7f, (Color3){0.42f, 0.28f, 0.14f}, true);
     scene_add_box(&scene, 6.0f, -9.0f, 0.25f, 2.4f, 0.9f, 0.5f, (Color3){0.42f, 0.28f, 0.14f}, true);
@@ -355,11 +355,20 @@ int main(int argc, char** argv) {
             camera_rotate(&camera, yaw_delta, pitch_delta);
         }
 
-        scene.gate_request_to_open = false;
-        if (input_down(&in, SDL_SCANCODE_E)) {
+        if (input_pressed(&in, SDL_SCANCODE_E))
+        {
             float fx, fy;
             camera_get_forward(&camera, &fx, &fy);
-            if (scene_gate_can_interact(&scene, camera.position.x, camera.position.y, fx, fy)) scene.gate_request_to_open = true;
+
+            int gate_index = scene_find_interactable_gate(
+                &scene,
+                camera.position.x,
+                camera.position.y,
+                fx,
+                fy);
+
+            if (gate_index >= 0)
+                scene_toggle_gate(&scene, gate_index);
         }
 
         scene_update(&scene, delta_time);
@@ -384,13 +393,14 @@ int main(int argc, char** argv) {
 
         camera_update_z(&camera, delta_time);
 
-        renderer_begin_frame(0.08f, 0.09f, 0.11f);
+        renderer_begin_frame(0.78f, 0.88f, 0.98f);
+
+        renderer_draw_sky_gradient(light_intensity);
 
         camera_apply_view(&camera);
         renderer_apply_light(light_intensity);
-
         scene_render(&scene);
-        scene_debug_draw_obstacles(&scene);
+        //scene_debug_draw_obstacles(&scene);
 
         if (show_help) {
             int w, h;

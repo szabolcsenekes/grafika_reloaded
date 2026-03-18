@@ -13,7 +13,8 @@ struct Model;
 #define SCENE_MAX_ROCKS 256
 #define SCENE_MAX_MONKEYS 64
 #define SCENE_MAX_BANANAS 128
-#define SCENE_MAX_TREES 1024
+#define SCENE_MAX_TREES 256
+#define SCENE_MAX_GATES 8
 
 typedef struct
 {
@@ -124,17 +125,21 @@ typedef struct
 
     float ground_half_size;
 
-    SceneGate gate;
-    bool gate_request_to_open;
+    SceneGate gates[SCENE_MAX_GATES];
+    int gate_count;
 } Scene;
 
 void scene_init(Scene *scene);
 
 void scene_add_box(Scene *scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable);
+
 void scene_add_fence(Scene *scene, float cx, float cy, float half_size, float wall_height, bool collidable);
+
 void scene_add_gate(Scene *scene, float hinge_x, float hinge_y, float hinge_z, float width, float thickness, float height, Color3 color, float closed_deg, float open_deg);
 
-bool scene_gate_can_interact(const Scene *scene, float cam_x, float cam_y, float cam_fx, float cam_fy);
+int scene_find_interactable_gate(const Scene *scene, float cam_x, float cam_y, float cam_fx, float cam_fy);
+
+void scene_toggle_gate(Scene *scene, int gate_index);
 
 void scene_set_rock_model(Scene *scene, const struct Model *rock_model);
 void scene_add_rock(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable);
@@ -152,7 +157,6 @@ int scene_get_eaten_banana_count(const Scene *scene);
 void scene_set_tree_model(Scene *scene, const Model *tree_model);
 void scene_add_tree(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable);
 
-void scene_toggle_gate(Scene *scene);
 void scene_update(Scene *scene, float delta_time);
 void scene_collect_obstacles(Scene *scene);
 void scene_render(const Scene *scene);
