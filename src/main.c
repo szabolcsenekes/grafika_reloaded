@@ -184,6 +184,12 @@ int main(int argc, char** argv) {
         scene_add_rock(&scene, 5.0f, 6.0f, 2.0f, 8.0f, 25.0f, true);
         scene_add_rock(&scene, -8.0f, 4.0f, 0.5f, 0.7f, -10.0f, true);
         scene_add_rock(&scene, 12.0f, -3.0f, 0.7f, 1.1f, 70.0f, true);
+        scene_add_rock(&scene, -10.0f, 10.0f, 0.6f, 1.0f, 15.0f, true);
+        scene_add_rock(&scene, 8.0f, 11.0f, 0.5f, 0.9f, 120.0f, true);
+        scene_add_rock(&scene, 42.0f, 6.0f, 0.4f, 0.8f, 45.0f, true);
+        scene_add_rock(&scene, 36.0f, 14.0f, 0.5f, 1.0f, -20.0f, true);
+        scene_add_rock(&scene, -48.0f, -16.0f, 0.4f, 0.8f, 80.0f, true);
+        scene_add_rock(&scene, -39.0f, -24.0f, 0.5f, 1.1f, 150.0f, true);
     } else {
         fprintf(stderr, "Rock model not loaded. Falling back to colored boxes.\n");
     }
@@ -201,6 +207,15 @@ int main(int argc, char** argv) {
 
         scene_add_monkey(&scene, 6.0f, 2.0f, 0.0f, 3.5f, 180.0f, 1.8f, true);
         scene_add_monkey(&scene, -5.0f, 5.0f, 0.0f, 3.2f, 45.0f, 1.8f, true);
+
+        scene_add_monkey(&scene, 10.0f, -8.0f, 0.0f, 3.1f, 230.0f, 1.8f, true);
+        scene_add_monkey(&scene, -12.0f, -6.0f, 0.0f, 3.4f, 300.0f, 1.8f, true);
+
+        scene_add_monkey(&scene, 39.0f, 8.0f, 0.0f, 2.8f, 90.0f, 1.6f, true);
+        scene_add_monkey(&scene, 44.0f, 13.0f, 0.0f, 2.9f, 210.0f, 1.6f, true);
+
+        scene_add_monkey(&scene, -46.0f, -18.0f, 0.0f, 3.0f, 120.0f, 1.7f, true);
+        scene_add_monkey(&scene, -40.0f, -24.0f, 0.0f, 2.7f, 20.0f, 1.6f, true);
     }
     else
     {
@@ -241,23 +256,7 @@ int main(int argc, char** argv) {
     scene_add_gate(&scene, 38.5f, -2.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
     scene_add_gate(&scene, -46.5f, -35.0f, 0.0f, 3.0f, 0.12f, 2.0f, (Color3){0.40f, 0.30f, 0.15f}, 0.0f, 90.0f);
 
-    scene_add_box(&scene, -6.0f, 7.0f, 0.35f, 3.5f, 1.2f, 0.7f, (Color3){0.42f, 0.28f, 0.14f}, true);
-    scene_add_box(&scene, 6.0f, -9.0f, 0.25f, 2.4f, 0.9f, 0.5f, (Color3){0.42f, 0.28f, 0.14f}, true);
 
-    scene_add_box(&scene, 41.0f, 7.0f, 0.3f, 2.8f, 1.0f, 0.6f, (Color3){0.42f, 0.28f, 0.14f}, true);
-    scene_add_box(&scene, -44.0f, -17.0f, 0.3f, 2.8f, 1.0f, 0.6f, (Color3){0.42f, 0.28f, 0.14f}, true);
-
-    //props
-    if (!rock_loaded) {
-        scene_add_box(&scene, 5.0f, 6.0f, 0.5f, 1.8f, 1.2f, 1.0f, (Color3){0.45f, 0.45f, 0.48f}, true);
-        scene_add_box(&scene, -8.0f, 4.0f, 0.4f, 1.0f, 1.0f, 0.8f, (Color3){0.45f, 0.45f, 0.48f}, true);
-        scene_add_box(&scene, 12.0f, -3.0f, 0.6f, 2.2f, 1.4f, 1.2f, (Color3){0.45f, 0.45f, 0.48f}, true);
-    }
-
-    scene_add_box(&scene, -10.0f, -6.0f, 1.2f, 0.6f, 0.6f, 2.4f, (Color3){0.30f, 0.22f, 0.10f}, true);
-    scene_add_box(&scene, 18.0f, 8.0f, 1.5f, 0.7f, 0.7f, 3.0f, (Color3){0.30f, 0.22f, 0.10f}, true);
-
-    scene_add_box(&scene, 35.0f, -5.0f, 1.2f, 6.0f, 4.0f, 2.4f, (Color3){0.55f, 0.40f, 0.25f}, true);
 
     bool running = true;
 

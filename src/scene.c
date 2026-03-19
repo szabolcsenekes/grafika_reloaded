@@ -196,6 +196,263 @@ static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
     glEnd();
 }
 
+static float frand_range(float a, float b)
+{
+    return a + (b - a) * ((float)rand() / (float)RAND_MAX);
+}
+
+static void spawn_water_particle(Scene *scene)
+{
+    for (int i = 0; i < MAX_WATER_PARTICLES; i++)
+    {
+        WaterParticle *p = &scene->water_particles[i];
+        if (!p->active)
+        {
+            float angle = frand_range(0.0f, 6.28318f);
+
+            float rr = sqrtf(frand_range(0.0f, 1.0f));
+            float ex = scene->pond_rx * 0.75f * rr;
+            float ey = scene->pond_ry * 0.75f * rr;
+
+            p->x = scene->pond_x + cosf(angle) * ex;
+            p->y = scene->pond_y + sinf(angle) * ey;
+            p->z = scene->pond_z + 0.04f;
+
+            p->vx = frand_range(-0.04f, 0.04f);
+            p->vy = frand_range(-0.04f, 0.04f);
+            p->vz = frand_range(0.12f, 0.28f);
+
+            p->life = frand_range(0.7f, 1.4f);
+            p->max_life = p->life;
+            p->active = true;
+            return;
+        }
+    }
+}
+
+static void draw_water_mesh(const Scene *scene)
+{
+    float cx = scene->pond_x;
+    float cy = scene->pond_y;
+    float z = scene->pond_z;
+    float rx = scene->pond_rx;
+    float ry = scene->pond_ry;
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    for (int x = 0; x < WATER_SIZE - 1; x++)
+    {
+        glBegin(GL_TRIANGLE_STRIP);
+
+        for (int y = 0; y < WATER_SIZE; y++)
+        {
+            for (int k = 0; k < 2; k++)
+            {
+                int xx = x + k;
+                int yy = y;
+
+                float fx = (float)xx / (float)(WATER_SIZE - 1);
+                float fy = (float)yy / (float)(WATER_SIZE - 1);
+
+                float nx = (fx - 0.5f) * 2.0f;
+                float ny = (fy - 0.5f) * 2.0f;
+
+                float inside = nx * nx + ny * ny;
+                if (inside > 1.0f)
+                {
+                    continue;
+                }
+
+                float wx = cx + nx * rx;
+                float wy = cy + ny * ry;
+                float h = scene->water.h[xx][yy];
+
+                float edge = inside;
+                float r = 0.10f + 0.05f * (1.0f - edge) + h * 0.10f;
+                float g = 0.28f + 0.10f * (1.0f - edge) + h * 0.12f;
+                float b = 0.52f + 0.18f * (1.0f - edge) + h * 0.08f;
+
+                glColor4f(r, g, b, 0.88f);
+                glNormal3f(0.0f, 0.0f, 1.0f);
+                glVertex3f(wx, wy, z + h * 0.28f);
+            }
+        }
+
+        glEnd();
+    }
+
+    glDisable(GL_BLEND);
+}
+
+static void draw_pond_border(const Scene *scene)
+{
+    const int segments = 64;
+
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    glColor3f(0.08f, 0.16f, 0.22f);
+    glLineWidth(2.0f);
+
+    glBegin(GL_LINE_LOOP);
+    for (int i = 0; i < segments; i++)
+    {
+        float a = (2.0f * (float)M_PI * (float)i) / (float)segments;
+        float x = scene->pond_x + cosf(a) * scene->pond_rx;
+        float y = scene->pond_y + sinf(a) * scene->pond_ry;
+        glVertex3f(x, y, scene->pond_z + 0.01f);
+    }
+    glEnd();
+
+    glEnable(GL_LIGHTING);
+}
+
+static void draw_water_particles(const Scene *scene)
+{
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glPointSize(4.0f);
+
+    glBegin(GL_POINTS);
+    for (int i = 0; i < MAX_WATER_PARTICLES; i++)
+    {
+        const WaterParticle *p = &scene->water_particles[i];
+        if (!p->active)
+        {
+            continue;
+        }
+
+        float a = p->life / p->max_life;
+        glColor4f(0.75f, 0.88f, 1.0f, a);
+        glVertex3f(p->x, p->y, p->z);
+    }
+    glEnd();
+
+    glDisable(GL_BLEND);
+    glEnable(GL_LIGHTING);
+}
+
+void water_splash(Scene *scene, float wx, float wy)
+{
+    float lx = (wx - scene->pond_x) / scene->pond_rx;
+    float ly = (wy - scene->pond_y) / scene->pond_ry;
+
+    if (lx * lx + ly * ly > 1.0f)
+        return;
+
+    int ix = (int)(((lx * 0.5f) + 0.5f) * (WATER_SIZE - 1));
+    int iy = (int)(((ly * 0.5f) + 0.5f) * (WATER_SIZE - 1));
+
+    for (int dx = -2; dx <= 2; dx++)
+    {
+        for (int dy = -2; dy <= 2; dy++)
+        {
+            int x = ix + dx;
+            int y = iy + dy;
+
+            if (x <= 1 || x >= WATER_SIZE - 1 || y <= 1 || y >= WATER_SIZE - 1)
+                continue;
+
+            float d2 = (float)(dx * dx + dy * dy);
+            float impulse = 0.28f - 0.04f * d2;
+
+            if (impulse > 0.0f)
+            {
+                scene->water.v[x][y] += impulse;
+
+                if (scene->water.v[x][y] > 0.08f)
+                    scene->water.v[x][y] = 0.08f;
+                if (scene->water.v[x][y] < -0.08f)
+                    scene->water.v[x][y] = -0.08f;
+            }
+        }
+    }
+}
+
+static bool point_in_pond(const Scene *scene, float x, float y)
+{
+    float lx = (x - scene->pond_x) / scene->pond_rx;
+    float ly = (y - scene->pond_y) / scene->pond_ry;
+    return (lx * lx + ly * ly) <= 1.0f;
+}
+
+static void draw_pond_bed(const Scene *scene)
+{
+    const int segments = 64;
+
+    float cx = scene->pond_x;
+    float cy = scene->pond_y;
+    float z = scene->pond_z - 0.35f;
+    float rx = scene->pond_rx * 1.02f;
+    float ry = scene->pond_ry * 1.02f;
+
+    glEnable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+
+    glBegin(GL_TRIANGLE_FAN);
+    glColor3f(0.18f, 0.16f, 0.10f);
+    glNormal3f(0.0f, 0.0f, 1.0f);
+    glVertex3f(cx, cy, z);
+
+    for (int i = 0; i <= segments; i++)
+    {
+        float a = (2.0f * (float)M_PI * (float)i) / (float)segments;
+        float x = cx + cosf(a) * rx;
+        float y = cy + sinf(a) * ry;
+
+        glColor3f(0.28f, 0.24f, 0.14f);
+        glVertex3f(x, y, z + 0.10f);
+    }
+    glEnd();
+}
+
+static void draw_pond_edge_fill(const Scene *scene)
+{
+    const int segments = 96;
+
+    float cx = scene->pond_x;
+    float cy = scene->pond_y;
+    float z = scene->pond_z;
+
+    float inner_rx = scene->pond_rx * 0.96f;
+    float inner_ry = scene->pond_ry * 0.96f;
+
+    float outer_rx = scene->pond_rx * 1.02f;
+    float outer_ry = scene->pond_ry * 1.02f;
+
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glBegin(GL_TRIANGLE_STRIP);
+    for (int i = 0; i <= segments; i++)
+    {
+        float a = (2.0f * (float)M_PI * (float)i) / (float)segments;
+        float c = cosf(a);
+        float s = sinf(a);
+
+        glColor4f(0.10f, 0.30f, 0.52f, 0.92f);
+        glVertex3f(
+            cx + c * inner_rx,
+            cy + s * inner_ry,
+            z + 0.003f);
+
+        glColor4f(0.24f, 0.22f, 0.14f, 0.98f);
+        glVertex3f(
+            cx + c * outer_rx,
+            cy + s * outer_ry,
+            z - 0.02f);
+    }
+    glEnd();
+
+    glDisable(GL_BLEND);
+}
+
 static void draw_ground_patch(float x0, float y0, float x1, float y1, float z, float r, float g, float b)
 {
     glColor3f(r, g, b);
@@ -410,6 +667,29 @@ void scene_init(Scene *scene)
 
     scene->global_time = 0.0f;
     scene->eaten_banana_count = 0;
+
+    scene->pond_enabled = true;
+    scene->pond_x = 18.0f;
+    scene->pond_y = -55.0f;
+    scene->pond_z = 0.06f;
+    scene->pond_rx = 8.0f;
+    scene->pond_ry = 5.0f;
+    scene->pond_emit_timer = 0.0f;
+    scene->water_particle_count = MAX_WATER_PARTICLES;
+
+    for (int i = 0; i < MAX_WATER_PARTICLES; i++)
+    {
+        scene->water_particles[i].active = false;
+    }
+
+    for (int i = 0; i < WATER_SIZE; i++)
+    {
+        for (int j = 0; j < WATER_SIZE; j++)
+        {
+            scene->water.h[i][j] = 0.0f;
+            scene->water.v[i][j] = 0.0f;
+        }
+    }
 }
 
 void scene_add_box(Scene* scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable) {
@@ -742,6 +1022,127 @@ void scene_update(Scene *scene, float delta_time)
         }
     }
 
+    for (int i = 0; i < scene->monkey_count; i++)
+    {
+        SceneMonkey *m = &scene->monkeys[i];
+        if (!m->active)
+            continue;
+
+        m->anim_time += delta_time;
+
+        if (m->state == MONKEY_IDLE)
+        {
+            if ((rand() % 1000) < 2)
+            {
+                m->state = MONKEY_EATING;
+                m->eat_timer = 0.0f;
+            }
+        }
+        else if (m->state == MONKEY_EATING)
+        {
+            m->eat_timer += delta_time;
+
+            if (m->eat_timer > 2.0f)
+            {
+                m->state = MONKEY_IDLE;
+            }
+        }
+    }
+
+    if (scene->pond_enabled)
+    {
+        scene->pond_emit_timer += delta_time;
+
+        while (scene->pond_emit_timer >= 0.04f)
+        {
+            scene->pond_emit_timer -= 0.04f;
+            spawn_water_particle(scene);
+        }
+
+        for (int i = 0; i < MAX_WATER_PARTICLES; i++)
+        {
+            WaterParticle *p = &scene->water_particles[i];
+            if (!p->active)
+            {
+                continue;
+            }
+
+            p->life -= delta_time;
+            if (p->life <= 0.0f)
+            {
+                p->active = false;
+                continue;
+            }
+
+            p->x += p->vx * delta_time;
+            p->y += p->vy * delta_time;
+            p->z += p->vz * delta_time;
+
+            p->vz -= 0.45f * delta_time;
+        }
+    }
+
+    {
+        {
+            float new_h[WATER_SIZE][WATER_SIZE];
+            float new_v[WATER_SIZE][WATER_SIZE];
+
+            for (int x = 0; x < WATER_SIZE; x++)
+            {
+                for (int y = 0; y < WATER_SIZE; y++)
+                {
+                    new_h[x][y] = scene->water.h[x][y];
+                    new_v[x][y] = scene->water.v[x][y];
+                }
+            }
+
+            for (int x = 1; x < WATER_SIZE - 1; x++)
+            {
+                for (int y = 1; y < WATER_SIZE - 1; y++)
+                {
+                    float center = scene->water.h[x][y];
+
+                    float avg =
+                        scene->water.h[x - 1][y] +
+                        scene->water.h[x + 1][y] +
+                        scene->water.h[x][y - 1] +
+                        scene->water.h[x][y + 1];
+
+                    avg *= 0.25f;
+
+                    float acc = (avg - center) * 0.25f;
+
+                    new_v[x][y] += acc * delta_time * 60.0f;
+
+                    new_v[x][y] *= 0.98f;
+
+                    if (new_v[x][y] > 0.08f)
+                        new_v[x][y] = 0.08f;
+                    if (new_v[x][y] < -0.08f)
+                        new_v[x][y] = -0.08f;
+
+                    new_h[x][y] += new_v[x][y] * delta_time * 60.0f;
+
+                    if (new_h[x][y] > 0.18f)
+                        new_h[x][y] = 0.18f;
+                    if (new_h[x][y] < -0.18f)
+                        new_h[x][y] = -0.18f;
+
+                    new_h[x][y] *= 0.998f;
+                }
+            }
+
+            for (int x = 1; x < WATER_SIZE - 1; x++)
+            {
+                for (int y = 1; y < WATER_SIZE - 1; y++)
+                {
+                    scene->water.h[x][y] = new_h[x][y];
+                    scene->water.v[x][y] = new_v[x][y];
+                }
+            }
+        }
+    }
+
     for (int i = 0; i < scene->banana_count; i++)
     {
         SceneBanana *b = &scene->bananas[i];
@@ -788,6 +1189,7 @@ void scene_update(Scene *scene, float delta_time)
                         mouth_x, mouth_y, mouth_z,
                         eat_r))
                 {
+                    m->state = MONKEY_EATING;
                     b->active = false;
                     scene->eaten_banana_count++;
                     eaten = true;
@@ -848,6 +1250,13 @@ void scene_update(Scene *scene, float delta_time)
 
             if (b->z < 0.0f)
             {
+                if (scene->pond_enabled && point_in_pond(scene, b->x, b->y))
+                {
+                    water_splash(scene, b->x, b->y);
+                    b->active = false;
+                    continue;
+                }
+
                 b->z = 0.0f;
 
                 if (fabsf(b->vz) > 1.0f)
@@ -918,6 +1327,15 @@ void scene_render(const Scene *scene)
         draw_box(b->cx, b->cy, b->cz, b->sx, b->sy, b->sz);
     }
 
+    if (scene->pond_enabled)
+    {
+        draw_pond_bed(scene);
+        draw_water_mesh(scene);
+        draw_pond_edge_fill(scene);
+        draw_pond_border(scene);
+        draw_water_particles(scene);
+    }
+
     if (scene->rock_model)
     {
         for (int i = 0; i < scene->rock_count; i++)
@@ -978,9 +1396,31 @@ void scene_render(const Scene *scene)
 
             float z_lift = -scene->monkey_model->local_bounds.minz * m->scale;
 
+            float idle_bob = sinf(m->anim_time * 2.0f) * 0.05f;
+            float idle_yaw = sinf(m->anim_time * 1.5f) * 10.0f;
+
+            float eat_bob = sinf(m->anim_time * 10.0f) * 0.08f;
+            float eat_pitch = sinf(m->anim_time * 12.0f) * 15.0f;
+
             glPushMatrix();
-            glTranslatef(m->x, m->y, m->z + z_lift);
-            glRotatef(m->yaw_deg, 0.0f, 0.0f, 1.0f);
+            float z_offset = 0.0f;
+            float extra_yaw = 0.0f;
+            float extra_pitch = 0.0f;
+
+            if (m->state == MONKEY_IDLE)
+            {
+                z_offset = sinf(m->anim_time * 2.0f) * 0.05f;
+                extra_yaw = sinf(m->anim_time * 1.5f) * 10.0f;
+            }
+            else if (m->state == MONKEY_EATING)
+            {
+                z_offset = sinf(m->anim_time * 10.0f) * 0.08f;
+                extra_pitch = sinf(m->anim_time * 12.0f) * 15.0f;
+            }
+
+            glTranslatef(m->x, m->y, m->z + z_lift + z_offset);
+            glRotatef(m->yaw_deg + extra_yaw, 0, 0, 1);
+            glRotatef(extra_pitch, 1, 0, 0);
             glRotatef(90.0f, 1.0f, 0.0f, 0.0f);
             glScalef(m->scale, m->scale, m->scale);
             model_draw(scene->monkey_model);
@@ -1199,6 +1639,9 @@ void scene_add_monkey(Scene *scene, float x, float y, float z, float scale, floa
     m->eat_radius = eat_radius;
     m->collidable = collidable;
     m->active = true;
+    m->state = MONKEY_IDLE;
+    m->anim_time = 0.0f;
+    m->eat_timer = 0.0f;
 }
 
 void scene_set_banana_model(Scene *scene, const Model *banana_model)

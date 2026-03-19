@@ -15,6 +15,18 @@ struct Model;
 #define SCENE_MAX_BANANAS 128
 #define SCENE_MAX_TREES 256
 #define SCENE_MAX_GATES 8
+#define MAX_WATER_PARTICLES 256
+#define WATER_SIZE 64
+
+typedef enum {
+    MONKEY_IDLE,
+    MONKEY_EATING
+} MonkeyState;
+
+typedef struct {
+    float h[WATER_SIZE][WATER_SIZE];
+    float v[WATER_SIZE][WATER_SIZE];
+} WaterSim;
 
 typedef struct
 {
@@ -32,7 +44,18 @@ typedef struct
     float eat_radius;
     bool collidable;
     bool active;
+    MonkeyState state;
+    float anim_time;
+    float eat_timer;
 } SceneMonkey;
+
+typedef struct {
+    float x, y, z;
+    float vx, vy, vz;
+    float life;
+    float max_life;
+    bool active;
+} WaterParticle;
 
 typedef struct
 {
@@ -119,6 +142,19 @@ typedef struct
     const struct Model *tree_model;
     SceneTree trees[SCENE_MAX_TREES];
     int tree_count;
+
+    WaterParticle water_particles[MAX_WATER_PARTICLES];
+    int water_particle_count;
+
+    float pond_x;
+    float pond_y;
+    float pond_z;
+    float pond_rx;
+    float pond_ry;
+    bool pond_enabled;
+    float pond_emit_timer;
+
+    WaterSim water;
 
     int eaten_banana_count;
     float global_time;
