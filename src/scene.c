@@ -381,6 +381,42 @@ static bool point_in_pond(const Scene *scene, float x, float y)
     return (lx * lx + ly * ly) <= 1.0f;
 }
 
+static void reset_raindrop(Scene *scene, RainDrop *d, float center_x, float center_y)
+{
+    d->x = center_x + frand_range(-55.0f, 55.0f);
+    d->y = center_y + frand_range(-55.0f, 55.0f);
+    d->z = frand_range(12.0f, 28.0f);
+    d->speed = frand_range(16.0f, 26.0f);
+    d->len = frand_range(0.35f, 0.80f);
+    d->active = true;
+}
+
+static void draw_rain(const Scene *scene)
+{
+    glDisable(GL_LIGHTING);
+    glDisable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    glLineWidth(1.2f);
+
+    glBegin(GL_LINES);
+    for (int i = 0; i < MAX_RAIN_DROPS; i++)
+    {
+        const RainDrop *d = &scene->rain_drops[i];
+        if (!d->active)
+            continue;
+
+        glColor4f(0.75f, 0.82f, 0.95f, 0.75f);
+        glVertex3f(d->x, d->y, d->z);
+        glVertex3f(d->x, d->y, d->z - d->len);
+    }
+    glEnd();
+
+    glDisable(GL_BLEND);
+    glEnable(GL_LIGHTING);
+}
+
 static void draw_pond_bed(const Scene *scene)
 {
     const int segments = 64;
@@ -690,6 +726,13 @@ void scene_init(Scene *scene)
             scene->water.v[i][j] = 0.0f;
         }
     }
+
+    scene->rain_enabled = true;
+
+    for (int i = 0; i < MAX_RAIN_DROPS; i++)
+    {
+        reset_raindrop(scene, &scene->rain_drops[i], 0.0f, 0.0f);
+    }
 }
 
 void scene_add_box(Scene* scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable) {
@@ -950,27 +993,6 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
-    if (scene->tree_model)
-    {
-        for (int i = 0; i < scene->tree_count; i++)
-        {
-            const SceneTree *t = &scene->trees[i];
-            if (!t->collidable)
-                continue;
-
-            float trunk_half = 0.22f * t->scale;
-            float trunk_h = 2.2f * t->scale;
-
-            obs_add(scene, (AABB){
-                               t->x - trunk_half,
-                               t->y - trunk_half,
-                               t->z,
-                               t->x + trunk_half,
-                               t->y + trunk_half,
-                               t->z + trunk_h});
-        }
-    }
-
     if (scene->banana_model)
     {
         for (int i = 0; i < scene->banana_count; i++)
@@ -1139,6 +1161,31 @@ void scene_update(Scene *scene, float delta_time)
                     scene->water.h[x][y] = new_h[x][y];
                     scene->water.v[x][y] = new_v[x][y];
                 }
+            }
+        }
+    }
+
+    if (scene->rain_enabled)
+    {
+        for (int i = 0; i < MAX_RAIN_DROPS; i++)
+        {
+            RainDrop *d = &scene->rain_drops[i];
+            if (!d->active)
+                continue;
+
+            d->z -= d->speed * delta_time;
+
+            if (d->z <= 0.0f)
+            {
+                if (scene->pond_enabled && point_in_pond(scene, d->x, d->y))
+                {
+                    if ((rand() % 100) < 20)
+                    {
+                        water_splash(scene, d->x, d->y);
+                    }
+                }
+
+                reset_raindrop(scene, d, 0.0f, 0.0f);
             }
         }
     }
@@ -1334,6 +1381,11 @@ void scene_render(const Scene *scene)
         draw_pond_edge_fill(scene);
         draw_pond_border(scene);
         draw_water_particles(scene);
+    }
+
+    if (scene->rain_enabled)
+    {
+        draw_rain(scene);
     }
 
     if (scene->rock_model)

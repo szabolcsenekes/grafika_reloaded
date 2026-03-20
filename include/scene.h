@@ -15,8 +15,9 @@ struct Model;
 #define SCENE_MAX_BANANAS 128
 #define SCENE_MAX_TREES 256
 #define SCENE_MAX_GATES 8
-#define MAX_WATER_PARTICLES 256
+#define MAX_WATER_PARTICLES 128
 #define WATER_SIZE 64
+#define MAX_RAIN_DROPS 800
 
 typedef enum {
     MONKEY_IDLE,
@@ -56,6 +57,13 @@ typedef struct {
     float max_life;
     bool active;
 } WaterParticle;
+
+typedef struct {
+    float x, y, z;
+    float speed;
+    float len;
+    bool active;
+} RainDrop;
 
 typedef struct
 {
@@ -145,6 +153,9 @@ typedef struct
 
     WaterParticle water_particles[MAX_WATER_PARTICLES];
     int water_particle_count;
+
+    RainDrop rain_drops[MAX_RAIN_DROPS];
+    bool rain_enabled;
 
     float pond_x;
     float pond_y;

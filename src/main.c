@@ -398,6 +398,13 @@ int main(int argc, char** argv) {
 
         camera_apply_view(&camera);
         renderer_apply_light(light_intensity);
+        renderer_apply_dynamic_fog(
+            scene.global_time,
+            camera.position.x,
+            camera.position.y,
+            scene.pond_enabled ? 1 : 0,
+            scene.pond_x,
+            scene.pond_y);
         scene_render(&scene);
         //scene_debug_draw_obstacles(&scene);
 
