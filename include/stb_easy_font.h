@@ -191,10 +191,10 @@ static int stb_easy_font_draw_segs(float x, float y, unsigned char *segs, int nu
 }
 
 static float stb_easy_font_spacing_val = 0;
-static void stb_easy_font_spacing(float spacing)
+/*static void stb_easy_font_spacing(float spacing)
 {
    stb_easy_font_spacing_val = spacing;
-}
+}*/
 
 static int stb_easy_font_print(float x, float y, char *text, unsigned char color[4], void *vertex_buffer, int vbuf_size)
 {
@@ -202,7 +202,7 @@ static int stb_easy_font_print(float x, float y, char *text, unsigned char color
     float start_x = x;
     int offset = 0;
 
-    stb_easy_font_color c = { 255,255,255,255 }; // use structure copying to avoid needing depending on memcpy()
+    stb_easy_font_color c = {{ 255,255,255,255 }}; // use structure copying to avoid needing depending on memcpy()
     if (color) { c.c[0] = color[0]; c.c[1] = color[1]; c.c[2] = color[2]; c.c[3] = color[3]; }
 
     while (*text && offset < vbuf_size) {
@@ -227,7 +227,7 @@ static int stb_easy_font_print(float x, float y, char *text, unsigned char color
     return (unsigned) offset/64;
 }
 
-static int stb_easy_font_width(char *text)
+/*static int stb_easy_font_width(char *text)
 {
     float len = 0;
     float max_len = 0;
@@ -243,9 +243,9 @@ static int stb_easy_font_width(char *text)
     }
     if (len > max_len) max_len = len;
     return (int) ceil(max_len);
-}
+}*/
 
-static int stb_easy_font_height(char *text)
+/*static int stb_easy_font_height(char *text)
 {
     float y = 0;
     int nonempty_line=0;
@@ -259,7 +259,7 @@ static int stb_easy_font_height(char *text)
         ++text;
     }
     return (int) ceil(y + (nonempty_line ? 12 : 0));
-}
+}*/
 #endif
 
 /*

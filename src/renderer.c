@@ -3,7 +3,12 @@
 #include <GL/gl.h>
 #include <GL/glu.h>
 #include <SDL2/SDL.h>
+#include <math.h>
 
+/*
+ * Configure the OpenGL viewport and perspective projection
+ * based on the current window size.
+ */
 static void apply_viewport_projection(int width, int height)
 {
     if (height <= 0)
@@ -24,55 +29,10 @@ static void apply_viewport_projection(int width, int height)
     glDisable(GL_CULL_FACE);
 }
 
-static void draw_skybox_cube(float s)
-{
-    glBegin(GL_QUADS);
-
-    //top
-    glColor3f(0.42f, 0.68f, 0.95f);
-    glVertex3f(-s, -s, s);
-    glVertex3f(s, -s, s);
-    glVertex3f(s, s, s);
-    glVertex3f(-s, s, s);
-
-    //front
-    glColor3f(0.55f, 0.78f, 0.98f);
-    glVertex3f(-s, s, -s);
-    glVertex3f(s, s, -s);
-    glVertex3f(s, s, s);
-    glVertex3f(-s, s, s);
-
-    //back
-    glColor3f(0.55f, 0.78f, 0.98f);
-    glVertex3f(s, -s, -s);
-    glVertex3f(-s, -s, -s);
-    glVertex3f(-s, -s, s);
-    glVertex3f(s, -s, s);
-
-    //left
-    glColor3f(0.60f, 0.82f, 0.99f);
-    glVertex3f(-s, -s, -s);
-    glVertex3f(-s, s, -s);
-    glVertex3f(-s, s, s);
-    glVertex3f(-s, -s, s);
-
-    //right
-    glColor3f(0.60f, 0.82f, 0.99f);
-    glVertex3f(s, s, -s);
-    glVertex3f(s, -s, -s);
-    glVertex3f(s, -s, s);
-    glVertex3f(s, s, s);
-
-    //bottom
-    glColor3f(0.30f, 0.35f, 0.40f);
-    glVertex3f(-s, s, -s);
-    glVertex3f(s, s, -s);
-    glVertex3f(s, -s, -s);
-    glVertex3f(-s, -s, -s);
-
-    glEnd();
-}
-
+/*
+ * Draw a fullscreen background quad with a vertical sky gradient.
+ * The gradient brightness depends on the current light intensity.
+ */
 void renderer_draw_sky_gradient(float intensity)
 {
     float bottom_r, bottom_g, bottom_b;
@@ -96,6 +56,10 @@ void renderer_draw_sky_gradient(float intensity)
     top_g = 0.66f * t;
     top_b = 0.90f * t;
 
+    /*
+     * Temporarily disable lighting and depth testing,
+     * then draw the sky in normalized screen space.
+     */
     glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT);
 
     glDisable(GL_LIGHTING);
@@ -135,9 +99,15 @@ void renderer_draw_sky_gradient(float intensity)
     glPopAttrib();
 }
 
+/*
+ * Initialize the renderer and set up default OpenGL states,
+ * including fog, lighting and color material.
+ */
 void renderer_init(int width, int height)
 {
     apply_viewport_projection(width, height);
+
+    glEnable(GL_FOG);
 
     glEnable(GL_LIGHTING);
     glEnable(GL_LIGHT0);
@@ -153,22 +123,35 @@ void renderer_init(int width, int height)
     glColorMaterial(GL_FRONT_AND_BACK, GL_AMBIENT_AND_DIFFUSE);
 }
 
+/*
+ * Recalculate viewport and projection after the window size changes.
+ */
 void renderer_resize(int width, int height)
 {
     apply_viewport_projection(width, height);
 }
 
+/*
+ * Begin a new frame by clearing the screen and depth buffer.
+ */
 void renderer_begin_frame(float r, float g, float b)
 {
     glClearColor(r, g, b, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
+/*
+ * Present the rendered frame on the SDL window.
+ */
 void renderer_end_frame(void *sdl_window)
 {
     SDL_GL_SwapWindow((SDL_Window *)sdl_window);
 }
 
+/*
+ * Update the main light source based on the given intensity value.
+ * This affects ambient, diffuse and specular light components.
+ */
 void renderer_apply_light(float intensity)
 {
     if (intensity < 0.1f)
@@ -201,6 +184,70 @@ void renderer_apply_light(float intensity)
     glLightfv(GL_LIGHT0, GL_DIFFUSE, diffuse);
     glLightfv(GL_LIGHT0, GL_SPECULAR, specular);
 
+    /*
+     * Directional light source above the scene.
+     * The last value is 0.0, so this is treated as a direction, not a position.
+     */
     const GLfloat pos[4] = {0.2f, -0.6f, 1.0f, 0.0f};
     glLightfv(GL_LIGHT0, GL_POSITION, pos);
+}
+
+/*
+ * Configure animated fog for the scene.
+ * Fog density changes over time and becomes stronger near the pond.
+ */
+void renderer_apply_dynamic_fog(float global_time, float cam_x, float cam_y,
+                                int pond_enabled, float pond_x, float pond_y)
+{
+    /*
+     * Base fog animation using a smooth sine wave pulse.
+     */
+    float pulse = (sinf(global_time * 0.35f) + 1.0f) * 0.5f;
+    float start = 26.0f - pulse * 8.0f;
+    float end = 92.0f - pulse * 24.0f;
+
+    float fog_r = 0.72f;
+    float fog_g = 0.82f;
+    float fog_b = 0.90f;
+
+    /*
+     * Increase fog strength and slightly shift its color
+     * when the camera is close to the pond.
+     */
+    if (pond_enabled)
+    {
+        float dx = cam_x - pond_x;
+        float dy = cam_y - pond_y;
+        float dist = sqrtf(dx * dx + dy * dy);
+
+        if (dist < 18.0f)
+        {
+            float t = 1.0f - dist / 18.0f;
+            start -= t * 7.0f;
+            end -= t * 18.0f;
+
+            fog_r -= t * 0.08f;
+            fog_g -= t * 0.05f;
+            fog_b -= t * 0.02f;
+        }
+    }
+
+    /*
+     * Keep fog values within reasonable limits
+     * to avoid invalid or overly aggressive fog settings.
+     */
+    if (start < 6.0f)
+        start = 6.0f;
+    if (end < start + 8.0f)
+        end = start + 8.0f;
+
+    {
+        GLfloat fog_color[4] = {fog_r, fog_g, fog_b, 1.0f};
+        glEnable(GL_FOG);
+        glFogi(GL_FOG_MODE, GL_LINEAR);
+        glFogfv(GL_FOG_COLOR, fog_color);
+        glFogf(GL_FOG_START, start);
+        glFogf(GL_FOG_END, end);
+        glHint(GL_FOG_HINT, GL_NICEST);
+    }
 }

@@ -7,25 +7,45 @@
 #define _USE_MATH_DEFINES
 #include <math.h>
 
-static float randf_range(float minv, float maxv) {
+/*
+ * Return a random floating-point number in the [minv, maxv] interval.
+ */
+static float randf_range(float minv, float maxv)
+{
     return minv + (maxv - minv) * ((float)rand() / (float)RAND_MAX);
 }
 
-static void obs_clear(Scene* scene) {
+/*
+ * Clear the current obstacle list.
+ */
+static void obs_clear(Scene *scene)
+{
     scene->obstacle_count = 0;
 }
 
-static void obs_add(Scene* scene, AABB b) {
-    if (scene->obstacle_count < SCENE_MAX_OBSTACLES) {
+/*
+ * Add one AABB obstacle to the obstacle list if there is enough space.
+ */
+static void obs_add(Scene *scene, AABB b)
+{
+    if (scene->obstacle_count < SCENE_MAX_OBSTACLES)
+    {
         scene->obstacles[scene->obstacle_count++] = b;
     }
 }
 
+/*
+ * Clamp a float value to the [a, b] interval.
+ */
 static float clampf(float v, float a, float b)
 {
     return v < a ? a : (v > b ? b : v);
 }
 
+/*
+ * Test sphere-AABB intersection in 3D.
+ * Used mainly for banana collision checks.
+ */
 static bool sphere_aabb_hit(float cx, float cy, float cz, float r, const AABB *b)
 {
     float px = clampf(cx, b->minx, b->maxx);
@@ -39,6 +59,9 @@ static bool sphere_aabb_hit(float cx, float cy, float cz, float r, const AABB *b
     return (dx * dx + dy * dy + dz * dz) <= (r * r);
 }
 
+/*
+ * Check whether a banana sphere hits any obstacle in the scene.
+ */
 static bool banana_hits_any_obstacle(const Scene *scene, float x, float y, float z, float r)
 {
     for (int i = 0; i < scene->obstacle_count; i++)
@@ -49,10 +72,18 @@ static bool banana_hits_any_obstacle(const Scene *scene, float x, float y, float
     return false;
 }
 
-static float deg2radf(float d) {
+/*
+ * Convert degrees to radians.
+ */
+static float deg2radf(float d)
+{
     return d * M_PI / 180.0f;
 }
 
+/*
+ * Test whether a 3D segment intersects a sphere.
+ * Used for detecting banana hits near a monkey's mouth.
+ */
 static bool segment_sphere_hit(
     float x0, float y0, float z0,
     float x1, float y1, float z1,
@@ -90,59 +121,77 @@ static bool segment_sphere_hit(
     return (qx * qx + qy * qy + qz * qz) <= r * r;
 }
 
-static bool circle_aabb_2d(float cx, float cy, float r, AABB b) {
-    float px = (cx < b.minx) ? b.minx : (cx > b.maxx) ? b.maxx : cx;
-    float py = (cy < b.miny) ? b.miny : (cy > b.maxy) ? b.maxy : cy;
+/*
+ * Test whether a 2D circle overlaps an AABB projected to the X-Y plane.
+ * Used for player movement collision.
+ */
+static bool circle_aabb_2d(float cx, float cy, float r, AABB b)
+{
+    float px = (cx < b.minx) ? b.minx : (cx > b.maxx) ? b.maxx
+                                                      : cx;
+    float py = (cy < b.miny) ? b.miny : (cy > b.maxy) ? b.maxy
+                                                      : cy;
     float dx = cx - px;
     float dy = cy - py;
     return (dx * dx + dy * dy) <= (r * r);
 }
 
-bool scene_collides_circle_2d(const Scene* scene, float cx, float cy, float r) {
-    for (int i = 0; i < scene->obstacle_count; i++) {
-        if (circle_aabb_2d(cx, cy, r, scene->obstacles[i])) return true;
+/*
+ * Return true if the given 2D circle collides with any scene obstacle.
+ */
+bool scene_collides_circle_2d(const Scene *scene, float cx, float cy, float r)
+{
+    for (int i = 0; i < scene->obstacle_count; i++)
+    {
+        if (circle_aabb_2d(cx, cy, r, scene->obstacles[i]))
+            return true;
     }
     return false;
 }
 
-static void add_fence_obstacles(Scene* scene, float cx, float cy, float half_size) {
+/*
+ * Add the obstacle boxes belonging to one fenced enclosure.
+ * The bottom side is split to leave space for the gate opening.
+ */
+static void add_fence_obstacles(Scene *scene, float cx, float cy, float half_size)
+{
     const float t = 0.25f;
     const float post = 0.35f;
     const float gate_w = 3.0f;
 
-    //+Y
+    /* +Y wall */
     obs_add(scene, (AABB){
-        cx - half_size, cy + half_size - t * 0.5f, 0.0f, cx + half_size, cy + half_size + t * 0.5f, 10.0f
-    });
+                       cx - half_size, cy + half_size - t * 0.5f, 0.0f, cx + half_size, cy + half_size + t * 0.5f, 10.0f});
 
-    //+X
+    /* +X wall */
     obs_add(scene, (AABB){
-        cx + half_size - t * 0.5f, cy - half_size, 0.0f, cx + half_size + t * 0.5f, cy + half_size, 10.0f
-    });
+                       cx + half_size - t * 0.5f, cy - half_size, 0.0f, cx + half_size + t * 0.5f, cy + half_size, 10.0f});
 
-    //-X
+    /* -X wall */
     obs_add(scene, (AABB){
-        cx - half_size - t * 0.5f, cy - half_size, 0.0f, cx - half_size + t * 0.5f, cy + half_size, 10.0f
-    });
+                       cx - half_size - t * 0.5f, cy - half_size, 0.0f, cx - half_size + t * 0.5f, cy + half_size, 10.0f});
 
-    //-Y split with gate
+    /* -Y wall split into two segments around the gate */
     float gap = gate_w + post;
     float total = half_size * 2.0f;
     float side_len = (total - gap) * 0.5f;
-    if (side_len < 0.5f) side_len = 0.5f;
+    if (side_len < 0.5f)
+        side_len = 0.5f;
 
     float left_cx = cx - (gap * 0.5f + side_len * 0.5f);
-    float right_cx = cx + (gap *0.5f + side_len * 0.5f);
+    float right_cx = cx + (gap * 0.5f + side_len * 0.5f);
 
     obs_add(scene, (AABB){
-        left_cx - side_len * 0.5f, cy - half_size - t * 0.5f, 0.0f, left_cx + side_len * 0.5f, cy - half_size + t * 0.5f, 10.0f
-    });
+                       left_cx - side_len * 0.5f, cy - half_size - t * 0.5f, 0.0f, left_cx + side_len * 0.5f, cy - half_size + t * 0.5f, 10.0f});
 
     obs_add(scene, (AABB){
-        right_cx - side_len * 0.5f, cy - half_size - t * 0.5f, 0.0f, right_cx + side_len * 0.5f, cy - half_size + t * 0.5f, 10.0f
-    });
+                       right_cx - side_len * 0.5f, cy - half_size - t * 0.5f, 0.0f, right_cx + side_len * 0.5f, cy - half_size + t * 0.5f, 10.0f});
 }
 
+/*
+ * Draw a simple box primitive centered at (cx, cy, cz).
+ * This is used for fences, gates, debug geometry and simple scene objects.
+ */
 static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
 {
     float x0 = cx - sx * 0.5f, x1 = cx + sx * 0.5f;
@@ -151,42 +200,42 @@ static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
 
     glBegin(GL_QUADS);
 
-    // top
+    /* top */
     glNormal3f(0.0f, 0.0f, 1.0f);
     glVertex3f(x0, y0, z1);
     glVertex3f(x1, y0, z1);
     glVertex3f(x1, y1, z1);
     glVertex3f(x0, y1, z1);
 
-    // bottom
+    /* bottom */
     glNormal3f(0.0f, 0.0f, -1.0f);
     glVertex3f(x0, y1, z0);
     glVertex3f(x1, y1, z0);
     glVertex3f(x1, y0, z0);
     glVertex3f(x0, y0, z0);
 
-    // front (+Y)
+    /* front (+Y) */
     glNormal3f(0.0f, 1.0f, 0.0f);
     glVertex3f(x0, y1, z0);
     glVertex3f(x0, y1, z1);
     glVertex3f(x1, y1, z1);
     glVertex3f(x1, y1, z0);
 
-    // back (-Y)
+    /* back (-Y) */
     glNormal3f(0.0f, -1.0f, 0.0f);
     glVertex3f(x0, y0, z0);
     glVertex3f(x1, y0, z0);
     glVertex3f(x1, y0, z1);
     glVertex3f(x0, y0, z1);
 
-    // left (-X)
+    /* left (-X) */
     glNormal3f(-1.0f, 0.0f, 0.0f);
     glVertex3f(x0, y0, z0);
     glVertex3f(x0, y0, z1);
     glVertex3f(x0, y1, z1);
     glVertex3f(x0, y1, z0);
 
-    // right (+X)
+    /* right (+X) */
     glNormal3f(1.0f, 0.0f, 0.0f);
     glVertex3f(x1, y0, z0);
     glVertex3f(x1, y1, z0);
@@ -196,11 +245,17 @@ static void draw_box(float cx, float cy, float cz, float sx, float sy, float sz)
     glEnd();
 }
 
+/*
+ * Random float helper used by particle, rain and water effects.
+ */
 static float frand_range(float a, float b)
 {
     return a + (b - a) * ((float)rand() / (float)RAND_MAX);
 }
 
+/*
+ * Spawn one small water particle above the pond surface.
+ */
 static void spawn_water_particle(Scene *scene)
 {
     for (int i = 0; i < MAX_WATER_PARTICLES; i++)
@@ -230,6 +285,9 @@ static void spawn_water_particle(Scene *scene)
     }
 }
 
+/*
+ * Draw the animated pond water mesh based on the height field simulation.
+ */
 static void draw_water_mesh(const Scene *scene)
 {
     float cx = scene->pond_x;
@@ -269,6 +327,7 @@ static void draw_water_mesh(const Scene *scene)
                 float wy = cy + ny * ry;
                 float h = scene->water.h[xx][yy];
 
+                /* Slight color variation based on edge distance and wave height */
                 float edge = inside;
                 float r = 0.10f + 0.05f * (1.0f - edge) + h * 0.10f;
                 float g = 0.28f + 0.10f * (1.0f - edge) + h * 0.12f;
@@ -286,6 +345,9 @@ static void draw_water_mesh(const Scene *scene)
     glDisable(GL_BLEND);
 }
 
+/*
+ * Draw a line loop around the pond border.
+ */
 static void draw_pond_border(const Scene *scene)
 {
     const int segments = 64;
@@ -309,6 +371,9 @@ static void draw_pond_border(const Scene *scene)
     glEnable(GL_LIGHTING);
 }
 
+/*
+ * Draw small particles above the water.
+ */
 static void draw_water_particles(const Scene *scene)
 {
     glDisable(GL_LIGHTING);
@@ -337,6 +402,10 @@ static void draw_water_particles(const Scene *scene)
     glEnable(GL_LIGHTING);
 }
 
+/*
+ * Add an impulse into the water simulation at world position (wx, wy).
+ * This creates a splash / wave effect.
+ */
 void water_splash(Scene *scene, float wx, float wy)
 {
     float lx = (wx - scene->pond_x) / scene->pond_rx;
@@ -374,6 +443,9 @@ void water_splash(Scene *scene, float wx, float wy)
     }
 }
 
+/*
+ * Return true if the given world position is inside the pond ellipse.
+ */
 static bool point_in_pond(const Scene *scene, float x, float y)
 {
     float lx = (x - scene->pond_x) / scene->pond_rx;
@@ -381,7 +453,10 @@ static bool point_in_pond(const Scene *scene, float x, float y)
     return (lx * lx + ly * ly) <= 1.0f;
 }
 
-static void reset_raindrop(Scene *scene, RainDrop *d, float center_x, float center_y)
+/*
+ * Reset one raindrop to a new random position above the scene.
+ */
+static void reset_raindrop(RainDrop *d, float center_x, float center_y)
 {
     d->x = center_x + frand_range(-55.0f, 55.0f);
     d->y = center_y + frand_range(-55.0f, 55.0f);
@@ -391,6 +466,9 @@ static void reset_raindrop(Scene *scene, RainDrop *d, float center_x, float cent
     d->active = true;
 }
 
+/*
+ * Draw the rain effect as simple line segments.
+ */
 static void draw_rain(const Scene *scene)
 {
     glDisable(GL_LIGHTING);
@@ -417,6 +495,9 @@ static void draw_rain(const Scene *scene)
     glEnable(GL_LIGHTING);
 }
 
+/*
+ * Draw the ground of the pond below the water surface.
+ */
 static void draw_pond_bed(const Scene *scene)
 {
     const int segments = 64;
@@ -447,6 +528,9 @@ static void draw_pond_bed(const Scene *scene)
     glEnd();
 }
 
+/*
+ * Fill the transition area between water and surrounding ground.
+ */
 static void draw_pond_edge_fill(const Scene *scene)
 {
     const int segments = 96;
@@ -489,6 +573,9 @@ static void draw_pond_edge_fill(const Scene *scene)
     glDisable(GL_BLEND);
 }
 
+/*
+ * Draw one rectangular ground patch with a fixed color.
+ */
 static void draw_ground_patch(float x0, float y0, float x1, float y1, float z, float r, float g, float b)
 {
     glColor3f(r, g, b);
@@ -501,6 +588,9 @@ static void draw_ground_patch(float x0, float y0, float x1, float y1, float z, f
     glEnd();
 }
 
+/*
+ * Draw one simple road segment made from two layered rectangular patches.
+ */
 static void draw_road_segment(float x0, float y0, float x1, float y1, float z)
 {
     draw_ground_patch(
@@ -516,114 +606,51 @@ static void draw_road_segment(float x0, float y0, float x1, float y1, float z)
         0.58f, 0.48f, 0.30f);
 }
 
+/*
+ * Draw the full ground with multiple colored areas and simple roads.
+ */
 static void draw_ground(float half_size, float z)
 {
     glEnable(GL_LIGHTING);
 
-    // base ground
+    /* base ground */
     draw_ground_patch(-half_size, -half_size, half_size, half_size, z, 0.34f, 0.50f, 0.24f);
 
-    // bigger patches
+    /* larger terrain variations */
     draw_ground_patch(-half_size, -half_size, 0.0f, 0.0f, z + 0.001f, 0.30f, 0.46f, 0.22f);
     draw_ground_patch(0.0f, -half_size, half_size, 0.0f, z + 0.001f, 0.32f, 0.48f, 0.23f);
     draw_ground_patch(-half_size, 0.0f, 0.0f, half_size, z + 0.001f, 0.36f, 0.53f, 0.25f);
     draw_ground_patch(0.0f, 0.0f, half_size, half_size, z + 0.001f, 0.33f, 0.49f, 0.24f);
 
-    // lighter parts around the enclosures
+    /* lighter ground around enclosures */
     draw_ground_patch(-30.0f, -30.0f, 30.0f, 30.0f, z + 0.002f, 0.38f, 0.47f, 0.24f);
     draw_ground_patch(25.0f, -5.0f, 55.0f, 25.0f, z + 0.002f, 0.39f, 0.48f, 0.25f);
     draw_ground_patch(-63.0f, -38.0f, -27.0f, -2.0f, z + 0.002f, 0.39f, 0.48f, 0.25f);
 
-    // main road
+    /* main road */
     draw_road_segment(-3.0f, -95.0f, 3.0f, -25.0f, z + 0.004f);
 
-    // road to right enclosure
+    /* road to right enclosure */
     draw_road_segment(0.0f, -31.0f, 44.0f, -25.0f, z + 0.004f);
     draw_road_segment(38.0f, -25.0f, 44.0f, -6.0f, z + 0.0045f);
     draw_road_segment(36.0f, -6.0f, 44.0f, 0.0f, z + 0.005f);
 
-    // road to left enclosure
+    /* road to left enclosure */
     draw_road_segment(-46.0f, -36.0f, 0.0f, -30.0f, z + 0.004f);
     draw_road_segment(-49.0f, -38.0f, -43.0f, -32.0f, z + 0.005f);
 
-    // dry patches
+    /* dry terrain patches */
     draw_ground_patch(10.0f, 20.0f, 28.0f, 32.0f, z + 0.003f, 0.46f, 0.50f, 0.26f);
     draw_ground_patch(-80.0f, 18.0f, -55.0f, 35.0f, z + 0.003f, 0.44f, 0.49f, 0.25f);
     draw_ground_patch(60.0f, -50.0f, 88.0f, -30.0f, z + 0.003f, 0.45f, 0.50f, 0.26f);
 }
 
-static float dist2_xy(float ax, float ay, float bx, float by)
+/*
+ * Draw one fence enclosure visually.
+ * This includes walls, posts and the gate posts.
+ */
+static void draw_fence_visual(float half_size, float wall_height)
 {
-    float dx = ax - bx;
-    float dy = ay - by;
-    return dx * dx + dy * dy;
-}
-
-static void draw_banana_mesh(void)
-{
-    glPushMatrix();
-    glScalef(0.45f, 0.12f, 0.12f);
-    glColor3f(0.95f, 0.85f, 0.15f);
-    draw_box(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
-    glPopMatrix();
-
-    glPushMatrix();
-    glTranslatef(0.26f, 0.0f, 0.03f);
-    glScalef(0.14f, 0.10f, 0.10f);
-    glColor3f(0.88f, 0.78f, 0.10f);
-    draw_box(0.0f, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f);
-    glPopMatrix();
-}
-
-static void draw_monkey_mesh(float t, float eat_amount)
-{
-    float arm_anim = sinf(t * 4.0f) * 18.0f * (1.0f - eat_amount);
-    float body_bob = sinf(t * 3.0f) * 0.03f;
-    float head_pitch = eat_amount * 25.0f;
-
-    glPushMatrix();
-    glTranslatef(0.0f, 0.0f, body_bob);
-
-    glEnable(GL_LIGHTING);
-
-    glColor3f(0.38f, 0.25f, 0.14f);
-    draw_box(0.0f, 0.0f, 0.75f, 0.55f, 0.35f, 0.75f);
-
-    glColor3f(0.50f, 0.35f, 0.22f);
-    glPushMatrix();
-    glTranslatef(0.0f, 0.0f, 1.25f);
-    glRotatef(-head_pitch, 1.0f, 0.0f, 0.0f);
-    draw_box(0.0f, 0.0f, 0.0f, 0.42f, 0.36f, 0.42f);
-    glPopMatrix();
-
-    glColor3f(0.33f, 0.20f, 0.12f);
-
-    glPushMatrix();
-    glTranslatef(-0.35f, 0.0f, 0.95f);
-    glRotatef(arm_anim, 0.0f, 1.0f, 0.0f);
-    draw_box(0.0f, 0.0f, -0.18f, 0.14f, 0.14f, 0.58f);
-    glPopMatrix();
-
-    glPushMatrix();
-    glTranslatef(0.35f, 0.0f, 0.95f);
-    glRotatef(-arm_anim, 0.0f, 1.0f, 0.0f);
-    draw_box(0.0f, 0.0f, -0.18f, 0.14f, 0.14f, 0.58f);
-    glPopMatrix();
-
-    glPushMatrix();
-    glTranslatef(-0.13f, 0.0f, 0.28f);
-    draw_box(0.0f, 0.0f, -0.15f, 0.16f, 0.16f, 0.55f);
-    glPopMatrix();
-
-    glPushMatrix();
-    glTranslatef(0.13f, 0.0f, 0.28f);
-    draw_box(0.0f, 0.0f, -0.15f, 0.16f, 0.16f, 0.55f);
-    glPopMatrix();
-
-    glPopMatrix();
-}
-
-static void draw_fence_visual(float half_size, float wall_height) {
     glEnable(GL_LIGHTING);
 
     const float t = 0.25f;
@@ -631,17 +658,18 @@ static void draw_fence_visual(float half_size, float wall_height) {
     const float step = 4.0f;
     const float gate_w = 3.0f;
 
-    //walls
+    /* fence walls */
     glColor3f(0.35f, 0.25f, 0.12f);
 
-    //+Y
+    /* +Y wall */
     draw_box(0.0f, half_size, wall_height * 0.5f, half_size * 2.0f, t, wall_height);
 
-    //-Y split with gate
+    /* -Y wall split for gate */
     float gap = gate_w + post;
     float total = half_size * 2.0f;
     float side_len = (total - gap) * 0.5f;
-    if (side_len < 0.5f) side_len = 0.5f;
+    if (side_len < 0.5f)
+        side_len = 0.5f;
 
     float left_cx = -(gap * 0.5f + side_len * 0.5f);
     float right_cx = +(gap * 0.5f + side_len * 0.5f);
@@ -649,29 +677,32 @@ static void draw_fence_visual(float half_size, float wall_height) {
     draw_box(left_cx, -half_size, wall_height * 0.5f, side_len, t, wall_height);
     draw_box(right_cx, -half_size, wall_height * 0.5f, side_len, t, wall_height);
 
-    //+X
+    /* +X wall */
     draw_box(half_size, 0.0f, wall_height * 0.5f, t, half_size * 2.0f, wall_height);
 
-    //-X
+    /* -X wall */
     draw_box(-half_size, 0.0f, wall_height * 0.5f, t, half_size * 2.0f, wall_height);
 
-    //posts
+    /* posts */
     glColor3f(0.25f, 0.18f, 0.08f);
     float gate_clear = gate_w * 0.5f + post * 0.6f;
 
-    for (float x = -half_size; x <= half_size; x += step) {
+    for (float x = -half_size; x <= half_size; x += step)
+    {
         draw_box(x, half_size, wall_height * 0.5f, post, post, wall_height);
-        if (fabsf(x) > gate_clear) {
+        if (fabsf(x) > gate_clear)
+        {
             draw_box(x, -half_size, wall_height * 0.5f, post, post, wall_height);
         }
     }
 
-    for (float y = -half_size; y <= half_size; y += step) {
+    for (float y = -half_size; y <= half_size; y += step)
+    {
         draw_box(half_size, y, wall_height * 0.5f, post, post, wall_height);
         draw_box(-half_size, y, wall_height * 0.5f, post, post, wall_height);
     }
 
-    //gate posts
+    /* gate posts */
     glColor3f(0.40f, 0.30f, 0.15f);
     float gate_y = -half_size - t * 0.6f;
     float gate_x0 = -gate_w * 0.5f;
@@ -681,6 +712,9 @@ static void draw_fence_visual(float half_size, float wall_height) {
     draw_box(gate_x1, gate_y, wall_height * 0.5f, post, post, wall_height);
 }
 
+/*
+ * Initialize the scene and all simulation systems.
+ */
 void scene_init(Scene *scene)
 {
     scene->ground_half_size = 200.0f;
@@ -704,6 +738,7 @@ void scene_init(Scene *scene)
     scene->global_time = 0.0f;
     scene->eaten_banana_count = 0;
 
+    /* Pond setup */
     scene->pond_enabled = true;
     scene->pond_x = 18.0f;
     scene->pond_y = -55.0f;
@@ -727,34 +762,53 @@ void scene_init(Scene *scene)
         }
     }
 
+    /* Rain setup */
     scene->rain_enabled = true;
 
     for (int i = 0; i < MAX_RAIN_DROPS; i++)
     {
-        reset_raindrop(scene, &scene->rain_drops[i], 0.0f, 0.0f);
+        reset_raindrop(&scene->rain_drops[i], 0.0f, 0.0f);
     }
 }
 
-void scene_add_box(Scene* scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable) {
-    if (scene->box_count >= SCENE_MAX_BOXES) return;
+/*
+ * Add a colored box primitive to the scene.
+ */
+void scene_add_box(Scene *scene, float cx, float cy, float cz, float sx, float sy, float sz, Color3 color, bool collidable)
+{
+    if (scene->box_count >= SCENE_MAX_BOXES)
+        return;
 
-    SceneBox* b = &scene->boxes[scene->box_count++];
-    b->cx = cx; b->cy = cy; b->cz = cz;
-    b->sx = sx; b->sy = sy; b->sz = sz;
+    SceneBox *b = &scene->boxes[scene->box_count++];
+    b->cx = cx;
+    b->cy = cy;
+    b->cz = cz;
+    b->sx = sx;
+    b->sy = sy;
+    b->sz = sz;
     b->color = color;
     b->collidable = collidable;
 }
 
-void scene_add_fence(Scene* scene, float cx, float cy, float half_size, float wall_height, bool collidable) {
-    if (scene->fence_count >= SCENE_MAX_FENCES) return;
+/*
+ * Add a fence enclosure to the scene.
+ */
+void scene_add_fence(Scene *scene, float cx, float cy, float half_size, float wall_height, bool collidable)
+{
+    if (scene->fence_count >= SCENE_MAX_FENCES)
+        return;
 
-    SceneFence* f = &scene->fences[scene->fence_count++];
-    f->cx = cx; f->cy = cy;
+    SceneFence *f = &scene->fences[scene->fence_count++];
+    f->cx = cx;
+    f->cy = cy;
     f->half_size = half_size;
     f->wall_height = wall_height;
     f->collidable = collidable;
 }
 
+/*
+ * Add an interactive gate object to the scene.
+ */
 void scene_add_gate(Scene *scene, float hinge_x, float hinge_y, float hinge_z,
                     float width, float thickness, float height,
                     Color3 color, float closed_deg, float open_deg)
@@ -781,6 +835,9 @@ void scene_add_gate(Scene *scene, float hinge_x, float hinge_y, float hinge_z,
     g->speed_deg_per_s = 120.0f;
 }
 
+/*
+ * Find the nearest gate in front of the player that can be interacted with.
+ */
 int scene_find_interactable_gate(const Scene *scene, float cam_x, float cam_y, float cam_fx, float cam_fy)
 {
     int best_index = -1;
@@ -846,19 +903,33 @@ int scene_find_interactable_gate(const Scene *scene, float cam_x, float cam_y, f
     return best_index;
 }
 
-void scene_set_rock_model(Scene* scene, const Model* rock_model) {
+/*
+ * Set the shared rock model used by all rock instances.
+ */
+void scene_set_rock_model(Scene *scene, const Model *rock_model)
+{
     scene->rock_model = rock_model;
 }
 
-void scene_add_rock(Scene* scene, float x, float y, float z, float scale, float yaw_deg, bool collidable) {
-    if (scene->rock_count >= SCENE_MAX_ROCKS) return;
-    SceneRock* r = &scene->rocks[scene->rock_count++];
-    r->x = x; r->y = y; r->z = z;
+/*
+ * Add one rock instance to the scene.
+ */
+void scene_add_rock(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable)
+{
+    if (scene->rock_count >= SCENE_MAX_ROCKS)
+        return;
+    SceneRock *r = &scene->rocks[scene->rock_count++];
+    r->x = x;
+    r->y = y;
+    r->z = z;
     r->scale = scale;
     r->yaw_deg = yaw_deg;
     r->collidable = collidable;
 }
 
+/*
+ * Toggle a gate's target angle between open and closed.
+ */
 void scene_toggle_gate(Scene *scene, int gate_index)
 {
     if (gate_index < 0 || gate_index >= scene->gate_count)
@@ -873,6 +944,10 @@ void scene_toggle_gate(Scene *scene, int gate_index)
         g->target_deg = g->closed_deg;
 }
 
+/*
+ * Add temporary obstacle segments for each gate based on its current angle.
+ * This allows the player and bananas to collide with moving gates.
+ */
 static void add_gate_obstacles(Scene *scene)
 {
     const int SEGMENTS = 6;
@@ -908,27 +983,36 @@ static void add_gate_obstacles(Scene *scene)
     }
 }
 
-void scene_collect_obstacles(Scene* scene) {
+/*
+ * Rebuild the full obstacle list from fences, boxes, trees, rocks, monkeys,
+ * bananas and gates.
+ */
+void scene_collect_obstacles(Scene *scene)
+{
     obs_clear(scene);
 
-    //fences
-    for (int i = 0; i < scene->fence_count; i++) {
-        const SceneFence* f = &scene->fences[i];
-        if(f->collidable) {
+    /* fences */
+    for (int i = 0; i < scene->fence_count; i++)
+    {
+        const SceneFence *f = &scene->fences[i];
+        if (f->collidable)
+        {
             add_fence_obstacles(scene, f->cx, f->cy, f->half_size);
         }
     }
 
-    //boxes
-    for (int i = 0; i < scene->box_count; i++) {
-        const SceneBox* b = &scene->boxes[i];
-        if(!b->collidable) continue;
+    /* boxes */
+    for (int i = 0; i < scene->box_count; i++)
+    {
+        const SceneBox *b = &scene->boxes[i];
+        if (!b->collidable)
+            continue;
 
         obs_add(scene, (AABB){
-            b->cx - b->sx * 0.5f, b->cy - b->sy * 0.5f, b->cz - b->sz * 0.5f, b->cx + b->sx * 0.5f, b->cy + b->sy * 0.5f, b->cz + b->sz * 0.5f
-        });
+                           b->cx - b->sx * 0.5f, b->cy - b->sy * 0.5f, b->cz - b->sz * 0.5f, b->cx + b->sx * 0.5f, b->cy + b->sy * 0.5f, b->cz + b->sz * 0.5f});
     }
 
+    /* trees */
     if (scene->tree_model)
     {
         for (int i = 0; i < scene->tree_count; i++)
@@ -950,6 +1034,7 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
+    /* rocks */
     if (scene->rock_model)
     {
         const Model *m = scene->rock_model;
@@ -973,6 +1058,7 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
+    /* monkeys */
     if (scene->monkey_model)
     {
         const Model *m = scene->monkey_model;
@@ -993,6 +1079,7 @@ void scene_collect_obstacles(Scene* scene) {
         }
     }
 
+    /* bananas */
     if (scene->banana_model)
     {
         for (int i = 0; i < scene->banana_count; i++)
@@ -1016,12 +1103,21 @@ void scene_collect_obstacles(Scene* scene) {
     add_gate_obstacles(scene);
 }
 
+/*
+ * Update the whole scene for one frame:
+ * - global time
+ * - gate movement
+ * - monkey state/animation
+ * - water particles and water simulation
+ * - rain
+ * - banana physics and banana-monkey interaction
+ */
 void scene_update(Scene *scene, float delta_time)
 {
-
     scene->global_time += delta_time;
     scene_collect_obstacles(scene);
 
+    /* Animate gates toward their target angle */
     for (int gi = 0; gi < scene->gate_count; gi++)
     {
         SceneGate *g = &scene->gates[gi];
@@ -1044,6 +1140,7 @@ void scene_update(Scene *scene, float delta_time)
         }
     }
 
+    /* Update monkey idle/eating state */
     for (int i = 0; i < scene->monkey_count; i++)
     {
         SceneMonkey *m = &scene->monkeys[i];
@@ -1071,6 +1168,7 @@ void scene_update(Scene *scene, float delta_time)
         }
     }
 
+    /* Update water particles emitted above the pond */
     if (scene->pond_enabled)
     {
         scene->pond_emit_timer += delta_time;
@@ -1104,67 +1202,66 @@ void scene_update(Scene *scene, float delta_time)
         }
     }
 
+    /* Update height-field based water simulation */
     {
+        float new_h[WATER_SIZE][WATER_SIZE];
+        float new_v[WATER_SIZE][WATER_SIZE];
+
+        for (int x = 0; x < WATER_SIZE; x++)
         {
-            float new_h[WATER_SIZE][WATER_SIZE];
-            float new_v[WATER_SIZE][WATER_SIZE];
-
-            for (int x = 0; x < WATER_SIZE; x++)
+            for (int y = 0; y < WATER_SIZE; y++)
             {
-                for (int y = 0; y < WATER_SIZE; y++)
-                {
-                    new_h[x][y] = scene->water.h[x][y];
-                    new_v[x][y] = scene->water.v[x][y];
-                }
+                new_h[x][y] = scene->water.h[x][y];
+                new_v[x][y] = scene->water.v[x][y];
             }
+        }
 
-            for (int x = 1; x < WATER_SIZE - 1; x++)
+        for (int x = 1; x < WATER_SIZE - 1; x++)
+        {
+            for (int y = 1; y < WATER_SIZE - 1; y++)
             {
-                for (int y = 1; y < WATER_SIZE - 1; y++)
-                {
-                    float center = scene->water.h[x][y];
+                float center = scene->water.h[x][y];
 
-                    float avg =
-                        scene->water.h[x - 1][y] +
-                        scene->water.h[x + 1][y] +
-                        scene->water.h[x][y - 1] +
-                        scene->water.h[x][y + 1];
+                float avg =
+                    scene->water.h[x - 1][y] +
+                    scene->water.h[x + 1][y] +
+                    scene->water.h[x][y - 1] +
+                    scene->water.h[x][y + 1];
 
-                    avg *= 0.25f;
+                avg *= 0.25f;
 
-                    float acc = (avg - center) * 0.25f;
+                float acc = (avg - center) * 0.25f;
 
-                    new_v[x][y] += acc * delta_time * 60.0f;
+                new_v[x][y] += acc * delta_time * 60.0f;
+                new_v[x][y] *= 0.98f;
 
-                    new_v[x][y] *= 0.98f;
+                if (new_v[x][y] > 0.08f)
+                    new_v[x][y] = 0.08f;
+                if (new_v[x][y] < -0.08f)
+                    new_v[x][y] = -0.08f;
 
-                    if (new_v[x][y] > 0.08f)
-                        new_v[x][y] = 0.08f;
-                    if (new_v[x][y] < -0.08f)
-                        new_v[x][y] = -0.08f;
+                new_h[x][y] += new_v[x][y] * delta_time * 60.0f;
 
-                    new_h[x][y] += new_v[x][y] * delta_time * 60.0f;
+                if (new_h[x][y] > 0.18f)
+                    new_h[x][y] = 0.18f;
+                if (new_h[x][y] < -0.18f)
+                    new_h[x][y] = -0.18f;
 
-                    if (new_h[x][y] > 0.18f)
-                        new_h[x][y] = 0.18f;
-                    if (new_h[x][y] < -0.18f)
-                        new_h[x][y] = -0.18f;
-
-                    new_h[x][y] *= 0.998f;
-                }
+                new_h[x][y] *= 0.998f;
             }
+        }
 
-            for (int x = 1; x < WATER_SIZE - 1; x++)
+        for (int x = 1; x < WATER_SIZE - 1; x++)
+        {
+            for (int y = 1; y < WATER_SIZE - 1; y++)
             {
-                for (int y = 1; y < WATER_SIZE - 1; y++)
-                {
-                    scene->water.h[x][y] = new_h[x][y];
-                    scene->water.v[x][y] = new_v[x][y];
-                }
+                scene->water.h[x][y] = new_h[x][y];
+                scene->water.v[x][y] = new_v[x][y];
             }
         }
     }
 
+    /* Update falling rain and create splashes when raindrops hit the pond */
     if (scene->rain_enabled)
     {
         for (int i = 0; i < MAX_RAIN_DROPS; i++)
@@ -1185,11 +1282,12 @@ void scene_update(Scene *scene, float delta_time)
                     }
                 }
 
-                reset_raindrop(scene, d, 0.0f, 0.0f);
+                reset_raindrop(d, 0.0f, 0.0f);
             }
         }
     }
 
+    /* Update all bananas */
     for (int i = 0; i < scene->banana_count; i++)
     {
         SceneBanana *b = &scene->bananas[i];
@@ -1198,6 +1296,7 @@ void scene_update(Scene *scene, float delta_time)
 
         if (!b->on_ground)
         {
+            /* Airborne banana physics */
             b->vz -= 9.81f * delta_time;
 
             b->pitch_deg += b->ang_vel_pitch * delta_time;
@@ -1214,6 +1313,7 @@ void scene_update(Scene *scene, float delta_time)
 
             bool eaten = false;
 
+            /* Check whether the banana reaches any monkey's eating area */
             for (int j = 0; j < scene->monkey_count; j++)
             {
                 SceneMonkey *m = &scene->monkeys[j];
@@ -1247,6 +1347,7 @@ void scene_update(Scene *scene, float delta_time)
             if (eaten)
                 continue;
 
+            /* Collision with obstacles */
             bool hit_any = banana_hits_any_obstacle(scene, next_x, next_y, next_z, banana_r);
 
             if (!hit_any)
@@ -1295,6 +1396,7 @@ void scene_update(Scene *scene, float delta_time)
                 b->ang_vel_roll *= 0.75f;
             }
 
+            /* Ground / pond handling */
             if (b->z < 0.0f)
             {
                 if (scene->pond_enabled && point_in_pond(scene, b->x, b->y))
@@ -1325,6 +1427,7 @@ void scene_update(Scene *scene, float delta_time)
         }
         else
         {
+            /* Banana resting on the ground with small residual sliding/spinning */
             b->z = 0.0f;
 
             b->vx *= powf(0.08f, delta_time * 60.0f);
@@ -1349,14 +1452,18 @@ void scene_update(Scene *scene, float delta_time)
             b->pitch_deg += b->ang_vel_pitch * delta_time;
             b->roll_deg += b->ang_vel_roll * delta_time;
         }
-
     }
 }
 
+/*
+ * Render the entire scene:
+ * ground, fences, boxes, pond, rain, rocks, gates, trees, monkeys and bananas.
+ */
 void scene_render(const Scene *scene)
 {
     draw_ground(scene->ground_half_size, 0.0f);
 
+    /* fences */
     for (int i = 0; i < scene->fence_count; i++)
     {
         const SceneFence *f = &scene->fences[i];
@@ -1366,6 +1473,7 @@ void scene_render(const Scene *scene)
         glPopMatrix();
     }
 
+    /* simple boxes */
     glEnable(GL_LIGHTING);
     for (int i = 0; i < scene->box_count; i++)
     {
@@ -1374,6 +1482,7 @@ void scene_render(const Scene *scene)
         draw_box(b->cx, b->cy, b->cz, b->sx, b->sy, b->sz);
     }
 
+    /* pond and rain */
     if (scene->pond_enabled)
     {
         draw_pond_bed(scene);
@@ -1388,6 +1497,7 @@ void scene_render(const Scene *scene)
         draw_rain(scene);
     }
 
+    /* rocks */
     if (scene->rock_model)
     {
         for (int i = 0; i < scene->rock_count; i++)
@@ -1403,6 +1513,7 @@ void scene_render(const Scene *scene)
         }
     }
 
+    /* gates */
     for (int gi = 0; gi < scene->gate_count; gi++)
     {
         const SceneGate *g = &scene->gates[gi];
@@ -1419,6 +1530,7 @@ void scene_render(const Scene *scene)
         glPopMatrix();
     }
 
+    /* trees */
     if (scene->tree_model)
     {
         for (int i = 0; i < scene->tree_count; i++)
@@ -1438,6 +1550,7 @@ void scene_render(const Scene *scene)
         }
     }
 
+    /* monkeys */
     if (scene->monkey_model)
     {
         for (int i = 0; i < scene->monkey_count; i++)
@@ -1447,12 +1560,6 @@ void scene_render(const Scene *scene)
                 continue;
 
             float z_lift = -scene->monkey_model->local_bounds.minz * m->scale;
-
-            float idle_bob = sinf(m->anim_time * 2.0f) * 0.05f;
-            float idle_yaw = sinf(m->anim_time * 1.5f) * 10.0f;
-
-            float eat_bob = sinf(m->anim_time * 10.0f) * 0.08f;
-            float eat_pitch = sinf(m->anim_time * 12.0f) * 15.0f;
 
             glPushMatrix();
             float z_offset = 0.0f;
@@ -1480,6 +1587,7 @@ void scene_render(const Scene *scene)
         }
     }
 
+    /* bananas */
     if (scene->banana_model)
     {
         for (int i = 0; i < scene->banana_count; i++)
@@ -1504,12 +1612,17 @@ void scene_render(const Scene *scene)
     }
 }
 
-void scene_debug_draw_obstacles(const Scene* scene) {
+/*
+ * Draw all obstacle AABBs as red wireframes for debugging.
+ */
+void scene_debug_draw_obstacles(const Scene *scene)
+{
     glDisable(GL_LIGHTING);
     glColor3f(1, 0, 0);
 
-    for (int i = 0; i < scene->obstacle_count; i++) {
-        const AABB* b = &scene->obstacles[i];
+    for (int i = 0; i < scene->obstacle_count; i++)
+    {
+        const AABB *b = &scene->obstacles[i];
 
         float x0 = b->minx, x1 = b->maxx;
         float y0 = b->miny, y1 = b->maxy;
@@ -1517,7 +1630,7 @@ void scene_debug_draw_obstacles(const Scene* scene) {
 
         glBegin(GL_LINES);
 
-        // bottom rectangle
+        /* bottom rectangle */
         glVertex3f(x0, y0, z0);
         glVertex3f(x1, y0, z0);
         glVertex3f(x1, y0, z0);
@@ -1527,7 +1640,7 @@ void scene_debug_draw_obstacles(const Scene* scene) {
         glVertex3f(x0, y1, z0);
         glVertex3f(x0, y0, z0);
 
-        // top rectangle
+        /* top rectangle */
         glVertex3f(x0, y0, z1);
         glVertex3f(x1, y0, z1);
         glVertex3f(x1, y0, z1);
@@ -1537,7 +1650,7 @@ void scene_debug_draw_obstacles(const Scene* scene) {
         glVertex3f(x0, y1, z1);
         glVertex3f(x0, y0, z1);
 
-        // vertical edges
+        /* vertical edges */
         glVertex3f(x0, y0, z0);
         glVertex3f(x0, y0, z1);
         glVertex3f(x1, y0, z0);
@@ -1551,14 +1664,21 @@ void scene_debug_draw_obstacles(const Scene* scene) {
     }
 }
 
-bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) {
+/*
+ * Resolve overlap between a 2D circle and all scene obstacles.
+ * This is used to push the player out of collidable geometry.
+ */
+bool scene_resolve_circle_2d(const Scene *scene, float *cx, float *cy, float r)
+{
     bool moved = false;
 
-    for (int iter = 0; iter < 4; iter++) {
+    for (int iter = 0; iter < 4; iter++)
+    {
         bool any = false;
 
-        for (int i = 0; i < scene->obstacle_count; i++) {
-            const AABB* b = &scene->obstacles[i];
+        for (int i = 0; i < scene->obstacle_count; i++)
+        {
+            const AABB *b = &scene->obstacles[i];
 
             float px = clampf(*cx, b->minx, b->maxx);
             float py = clampf(*cy, b->miny, b->maxy);
@@ -1567,9 +1687,11 @@ bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) 
             float dy = *cy - py;
             float d2 = dx * dx + dy * dy;
 
-            if (d2 >= r * r) continue;
+            if (d2 >= r * r)
+                continue;
 
-            if (d2 < 1e-8f) {
+            if (d2 < 1e-8f)
+            {
                 float left = (*cx - b->minx);
                 float right = (b->maxx - *cx);
                 float down = (*cy - b->miny);
@@ -1578,23 +1700,30 @@ bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) 
                 float m = left;
                 int dir = 0;
 
-                if (right < m) {
+                if (right < m)
+                {
                     m = right;
                     dir = 1;
                 }
-                if (down < m) {
+                if (down < m)
+                {
                     m = down;
                     dir = 2;
                 }
-                if (up < m) {
+                if (up < m)
+                {
                     m = up;
                     dir = 3;
                 }
 
-                if (dir == 0) *cx = b->minx - r;
-                if (dir == 1) *cx = b->maxx + r;
-                if (dir == 2) *cx = b->miny - r;
-                if (dir == 3) *cx = b->maxy + r;
+                if (dir == 0)
+                    *cx = b->minx - r;
+                if (dir == 1)
+                    *cx = b->maxx + r;
+                if (dir == 2)
+                    *cx = b->miny - r;
+                if (dir == 3)
+                    *cx = b->maxy + r;
 
                 any = true;
                 moved = true;
@@ -1613,12 +1742,16 @@ bool scene_resolve_circle_2d(const Scene* scene, float* cx, float* cy, float r) 
             moved = true;
         }
 
-        if (!any) break;
+        if (!any)
+            break;
     }
 
     return moved;
 }
 
+/*
+ * Spawn a thrown banana with initial velocity and random spin.
+ */
 void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float vy, float vz)
 {
     for (int i = 0; i < SCENE_MAX_BANANAS; i++)
@@ -1647,6 +1780,7 @@ void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float
             b->ang_vel_pitch = randf_range(320.0f, 620.0f);
             b->ang_vel_roll = randf_range(-260.0f, 260.0f);
 
+            /* Thrown bananas are not part of the player collision system */
             b->collidable = false;
 
             if (i >= scene->banana_count)
@@ -1657,6 +1791,9 @@ void scene_throw_banana(Scene *scene, float x, float y, float z, float vx, float
     }
 }
 
+/*
+ * Count currently active bananas.
+ */
 int scene_get_active_banana_count(const Scene *scene)
 {
     int count = 0;
@@ -1668,16 +1805,25 @@ int scene_get_active_banana_count(const Scene *scene)
     return count;
 }
 
+/*
+ * Return how many bananas have been eaten so far.
+ */
 int scene_get_eaten_banana_count(const Scene *scene)
 {
     return scene->eaten_banana_count;
 }
 
+/*
+ * Set the shared monkey model pointer.
+ */
 void scene_set_monkey_model(Scene *scene, const Model *monkey_model)
 {
     scene->monkey_model = monkey_model;
 }
 
+/*
+ * Add one monkey instance to the scene.
+ */
 void scene_add_monkey(Scene *scene, float x, float y, float z, float scale, float yaw_deg, float eat_radius, bool collidable)
 {
     if (scene->monkey_count >= SCENE_MAX_MONKEYS)
@@ -1696,11 +1842,17 @@ void scene_add_monkey(Scene *scene, float x, float y, float z, float scale, floa
     m->eat_timer = 0.0f;
 }
 
+/*
+ * Set the shared banana model pointer.
+ */
 void scene_set_banana_model(Scene *scene, const Model *banana_model)
 {
     scene->banana_model = banana_model;
 }
 
+/*
+ * Add one static banana instance to the scene.
+ */
 void scene_add_banana(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable)
 {
     if (scene->banana_count >= SCENE_MAX_BANANAS)
@@ -1715,11 +1867,17 @@ void scene_add_banana(Scene *scene, float x, float y, float z, float scale, floa
     b->active = true;
 }
 
+/*
+ * Set the shared tree model pointer.
+ */
 void scene_set_tree_model(Scene *scene, const Model *tree_model)
 {
     scene->tree_model = tree_model;
 }
 
+/*
+ * Add one tree instance to the scene.
+ */
 void scene_add_tree(Scene *scene, float x, float y, float z, float scale, float yaw_deg, bool collidable)
 {
     if (scene->tree_count >= SCENE_MAX_TREES)
@@ -1735,6 +1893,10 @@ void scene_add_tree(Scene *scene, float x, float y, float z, float scale, float 
     t->collidable = collidable;
 }
 
+/*
+ * Per-frame scene hook.
+ * Currently unused, reserved for future extensions.
+ */
 void scene_begin_frame(Scene *scene)
 {
     (void)scene;

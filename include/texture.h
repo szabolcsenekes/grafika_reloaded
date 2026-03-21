@@ -9,15 +9,31 @@
 
 #include <GL/gl.h>
 
-typedef struct Texture2D {
+/*
+ * Represents a 2D OpenGL texture.
+ *
+ * id     - OpenGL texture identifier
+ * width  - texture width in pixels
+ * height - texture height in pixels
+ * valid  - indicates whether the texture was successfully loaded
+ */
+typedef struct Texture2D
+{
     GLuint id;
     int width;
     int height;
     bool valid;
 } Texture2D;
 
-bool texture_load(Texture2D* out_tex, const char* file_path);
+/*
+ * Load an image file and create an OpenGL texture from it.
+ * Returns true on success.
+ */
+bool texture_load(Texture2D *out_tex, const char *file_path);
 
-void texture_free(Texture2D* tex);
+/*
+ * Free the OpenGL texture and reset the structure.
+ */
+void texture_free(Texture2D *tex);
 
-#endif //TEXTURE_H
+#endif // TEXTURE_H
