@@ -33,7 +33,7 @@ Ctrl – Guggolás
 Space – Ugrás  
 E – Kapu  
 Q – Banán dobás  
-+ / - – Fényerő  
+"+" / - – Fényerő  
 F1 – Súgó  
 ESC – Kilépés  
 
